@@ -23,5 +23,14 @@ window.APP_CONFIG = {
     vat: 0.25,
   },
 
+  // Outside temperature (Open-Meteo) for the "How the house holds heat" tile.
+  location: { name: 'Herning', lat: 56.14, lon: 8.97 },
+
+  // Which temperature sensors belong to which floor, by device name in Homey.
+  floors: {
+    ground: { label: 'Ground floor', devices: ['Fugt/Temp Køkken'] },
+    first: { label: '1st floor', devices: ['Fugt/Temp 1.Sal'] },
+  },
+
   refreshSeconds: 15,
 };

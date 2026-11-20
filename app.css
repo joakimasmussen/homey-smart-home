@@ -118,3 +118,26 @@ button, select { font: inherit; color: inherit; }
 @media (prefers-reduced-motion: no-preference) {
   .bar, .hour-row .fill { transition: height 0.4s ease, width 0.4s ease; }
 }
+
+/* How the house holds heat */
+:root { --ground: #0F766E; --first: #E07A3F; --out: #7E8C83; --warn-bg: #FCE3D6; --warn-ink: #7A2A12; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ground: #3CCFB8; --first: #FF9A5C; --out: #8FA197; --warn-bg: #4A2618; --warn-ink: #FFC9AE; } }
+:root[data-theme="dark"] { --ground: #3CCFB8; --first: #FF9A5C; --out: #8FA197; --warn-bg: #4A2618; --warn-ink: #FFC9AE; }
+.heat-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.heat-stat { display: flex; flex-direction: column; gap: 2px; }
+.tiny-label { font-size: 12px; }
+.heat-num { font-family: 'Space Grotesk', Inter, sans-serif; font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.heat-chart { position: relative; height: 150px; }
+.heat-chart svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.heat-chart text { fill: var(--muted); font-size: 11px; font-family: Inter, sans-serif; }
+.heat-legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; }
+.heat-legend .sw { display: inline-block; width: 14px; height: 3px; margin-right: 6px; vertical-align: middle; border-radius: 2px; }
+.sw-ground { background: var(--ground); } .sw-first { background: var(--first); }
+.sw-out { background: none; border-top: 2px dashed var(--out); height: 0 !important; }
+.heat-summary { background: var(--card-2); border-radius: 14px; padding: 12px 14px; font-size: 14px; line-height: 1.45; margin: 0; }
+.heat-loss { border-top: 1px solid var(--line); padding-top: 12px; }
+
+.heat-loss-val { white-space: nowrap; font-family: 'Space Grotesk', Inter, sans-serif; font-size: 18px; font-weight: 700; color: var(--muted); opacity: 0.7; }
+.pill.warn { background: var(--warn-bg); color: var(--warn-ink); }
+.pill.good { background: var(--tile-on); color: var(--tile-on-ink); }
+.delta-bad { color: var(--peak); }

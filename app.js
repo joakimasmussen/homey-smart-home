@@ -248,8 +248,7 @@
     $('now-label').textContent = nowLabel();
     renderPrices();
     renderHouse();
-    renderChips();
-    renderHomeDevices();
+    renderHeat();
     if (state.tab === 'devices') renderZoneGroups();
     if (state.tab === 'energy') renderEnergy();
   }
@@ -354,6 +353,153 @@
     list(dayKey(1), 'list-tomorrow', false);
   }
 
+  // ---------- How the house holds heat ----------
+  state.heat = { outside: null, hist: {}, source: null };
+  const DAY = 24 * 3600000;
+
+  function floorDevices(key) {
+    const names = ((C.floors && C.floors[key] && C.floors[key].devices) || []).map((n) => n.trim().toLowerCase());
+    return Object.values(state.devices).filter((d) => names.includes(String(d.name).trim().toLowerCase()) && d.capabilitiesObj && d.capabilitiesObj.measure_temperature);
+  }
+  function floorNow(key) {
+    const v = floorDevices(key).map((d) => d.capabilitiesObj.measure_temperature.value).filter((x) => num(x) != null);
+    return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+  }
+
+  async function loadOutside() {
+    const L = C.location || { lat: 56.14, lon: 8.97 };
+    const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + L.lat + '&longitude=' + L.lon + '&current=temperature_2m&hourly=temperature_2m&past_days=1&forecast_days=1&timezone=Europe%2FCopenhagen';
+    const r = await withTimeout((signal) => fetch(url, { signal }), 15000);
+    if (!r.ok) throw new Error('weather ' + r.status);
+    const j = await r.json();
+    const now = Date.now();
+    const series = j.hourly.time.map((t, i) => ({ t: new Date(t).getTime(), v: j.hourly.temperature_2m[i] })).filter((p) => p.t >= now - DAY && p.t <= now && num(p.v) != null);
+    state.heat.outside = { now: j.current ? j.current.temperature_2m : (series.length ? series[series.length - 1].v : null), series };
+  }
+
+  // Homey Insights: try the two address forms the Web API uses for a log's entries.
+  async function insightSeries(deviceId) {
+    const full = 'homey:device:' + deviceId + ':measure_temperature';
+    const paths = [
+      '/api/manager/insights/log/' + encodeURIComponent(full) + '/entry?resolution=last24Hours',
+      '/api/manager/insights/log/' + encodeURIComponent('homey:device:' + deviceId) + '/measure_temperature/entry?resolution=last24Hours',
+    ];
+    for (const p of paths) {
+      try {
+        const r = await homey(p, true);
+        const vals = (r && (r.values || r.entries)) || r;
+        if (Array.isArray(vals) && vals.length) {
+          return vals.map((x) => ({ t: new Date(x.t || x.time || x.date).getTime(), v: x.v != null ? x.v : x.value })).filter((x) => num(x.v) != null && isFinite(x.t));
+        }
+      } catch (e) { /* try the next form */ }
+    }
+    return null;
+  }
+
+  // Fallback history kept on this phone, one reading per floor every 10 minutes.
+  function logLocal() {
+    const log = getS('heatlog') || { ground: [], first: [] };
+    const now = Date.now();
+    ['ground', 'first'].forEach((k) => {
+      const v = floorNow(k);
+      const arr = log[k] || [];
+      if (num(v) != null && (!arr.length || now - arr[arr.length - 1].t > 10 * 60000)) arr.push({ t: now, v });
+      log[k] = arr.filter((p) => p.t > now - DAY);
+    });
+    setS('heatlog', log);
+    return log;
+  }
+
+  async function loadIndoor() {
+    let gotInsights = false;
+    for (const k of ['ground', 'first']) {
+      const devs = floorDevices(k);
+      if (!devs.length) { state.heat.hist[k] = null; continue; }
+      const series = await insightSeries(devs[0].id);
+      if (series && series.length) { state.heat.hist[k] = series.filter((p) => p.t >= Date.now() - DAY); gotInsights = true; }
+    }
+    state.heat.source = gotInsights ? 'insights' : 'local';
+  }
+
+  async function loadHeat() {
+    try { await loadOutside(); } catch (e) { /* show without outside */ }
+    if (!DEMO && state.homey) { try { await loadIndoor(); } catch (e) { state.heat.source = 'local'; } }
+    renderHeat();
+  }
+
+  function seriesFor(k) {
+    if (state.heat.source === 'insights' || DEMO) return state.heat.hist[k] || [];
+    return ((getS('heatlog') || {})[k]) || [];
+  }
+  function change(series, now) {
+    if (!series || series.length < 2 || num(now) == null) return null;
+    if (series[series.length - 1].t - series[0].t < 6 * 3600000) return null;
+    return now - series[0].v;
+  }
+  const signed = (d) => (d == null ? '' : (d > 0 ? '+' : d < 0 ? '−' : '±') + Math.abs(d).toFixed(1) + '°');
+
+  function renderHeat() {
+    if (!$('heat-card')) return;
+    if (!DEMO) logLocal();
+    const g = floorNow('ground'), f = floorNow('first');
+    const out = state.heat.outside;
+    const sg = seriesFor('ground'), sf = seriesFor('first'), so = out ? out.series : [];
+    const cg = change(sg, g), cf = change(sf, f), co = out ? change(so, out.now) : null;
+    $('heat-ground').textContent = g == null ? '—' : f1(g) + '°';
+    $('heat-first').textContent = f == null ? '—' : f1(f) + '°';
+    $('heat-out').textContent = out && num(out.now) != null ? f1(out.now) + '°' : '—';
+    const dl = (el, d) => { $(el).textContent = d == null ? 'Collecting 24 h' : signed(d) + ' in 24 h'; $(el).className = 'muted tiny-label' + (d != null && d <= -0.8 ? ' delta-bad' : ''); };
+    dl('heat-ground-d', cg); dl('heat-first-d', cf);
+    $('heat-out-d').textContent = co == null ? (C.location ? C.location.name : '') : signed(co) + ' in 24 h';
+    $('heat-out-label').textContent = 'Outside' + (C.location ? ', ' + C.location.name : '');
+
+    const badge = $('heat-badge');
+    if (cg == null || cf == null) { badge.textContent = 'Learning'; badge.className = 'pill'; }
+    else if (Math.max(-cg, -cf) < 0.6) { badge.textContent = 'Holds well'; badge.className = 'pill good'; }
+    else { badge.textContent = (cf < cg ? '1st floor' : 'Ground floor') + ' cools faster'; badge.className = 'pill warn'; }
+
+    const parts = [];
+    if (g != null && f != null) {
+      const d = g - f;
+      parts.push(Math.abs(d) < 0.3 ? 'Both floors are about the same temperature.' : (d > 0 ? 'Upstairs is ' : 'Upstairs is ') + '<b>' + Math.abs(d).toFixed(1) + '°</b> ' + (d > 0 ? 'cooler' : 'warmer') + ' than downstairs.');
+    } else if (g == null && f == null) {
+      parts.push('No floor sensors found. Check the sensor names in config.js.');
+    }
+    if (cg != null && cf != null && co != null) {
+      const minOut = Math.min(...so.map((p) => p.v));
+      parts.push('Since this time yesterday it got <b>' + Math.abs(co).toFixed(1) + '°</b> ' + (co < 0 ? 'colder' : 'warmer') + ' outside (lowest ' + f1(minOut) + '°). The 1st floor changed <b>' + signed(cf) + '</b> and the ground floor <b>' + signed(cg) + '</b>.');
+    } else {
+      parts.push(state.heat.source === 'local' ? 'Building up 24 hours of history on this phone; the comparison appears tomorrow.' : 'Collecting the last 24 hours…');
+    }
+    $('heat-summary').innerHTML = parts.join(' ');
+    drawHeat(sg, sf, so);
+  }
+
+  function drawHeat(sg, sf, so) {
+    const el = $('heat-chart');
+    const W = Math.max(240, el.clientWidth), H = 150, l = 34, r = 6;
+    const now = Date.now(), t0 = now - DAY;
+    const x = (t) => l + ((t - t0) / DAY) * (W - l - r);
+    const fmtT = (t) => new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit' }).format(new Date(t));
+    // one small panel per scale: the two floors share a tight scale, outside gets its own
+    const panel = (series, top, h, minSpan) => {
+      const vals = series.flatMap((s) => s.list.map((p) => p.v)).filter((v) => num(v) != null);
+      if (!vals.length) return '';
+      let lo = Math.min(...vals), hi = Math.max(...vals);
+      const pad = Math.max(0.2, (minSpan - (hi - lo)) / 2);
+      lo -= pad; hi += pad;
+      const y = (v) => top + (1 - (v - lo) / (hi - lo)) * h;
+      const labs = [hi, lo].map((v) => '<text x="' + (l - 6) + '" y="' + (y(v) + 4).toFixed(1) + '" text-anchor="end">' + v.toFixed(Math.abs(hi - lo) < 4 ? 1 : 0) + '°</text>').join('');
+      const box = '<line x1="' + l + '" x2="' + (W - r) + '" y1="' + top + '" y2="' + top + '" stroke="var(--line)"></line><line x1="' + l + '" x2="' + (W - r) + '" y1="' + (top + h) + '" y2="' + (top + h) + '" stroke="var(--line)"></line>';
+      const lines = series.map((s) => (s.list.length > 1 ? '<polyline fill="none" stroke="' + s.color + '" stroke-width="' + s.w + '" stroke-linejoin="round"' + (s.dash ? ' stroke-dasharray="4 4"' : '') + ' points="' + s.list.filter((p) => p.t >= t0).map((p) => x(p.t).toFixed(1) + ',' + y(p.v).toFixed(1)).join(' ') + '"></polyline>' : '')).join('');
+      return box + labs + lines;
+    };
+    const inside = panel([{ list: sf, color: 'var(--first)', w: 2.5 }, { list: sg, color: 'var(--ground)', w: 2.5 }], 6, 62, 2);
+    const outside = panel([{ list: so, color: 'var(--out)', w: 2, dash: true }], 86, 40, 4);
+    const hours = [24, 18, 12, 6, 0].map((h) => { const t = now - h * 3600000; return '<text x="' + x(t).toFixed(1) + '" y="' + (H - 4) + '" text-anchor="' + (h === 24 ? 'start' : h === 0 ? 'end' : 'middle') + '">' + (h === 0 ? 'now' : fmtT(t)) + '</text>'; }).join('');
+    el.innerHTML = inside || outside ? '<svg viewBox="0 0 ' + W + ' ' + H + '" aria-hidden="true">' + inside + outside + hours + '</svg>' : '';
+  }
+
   // ---------- UI ----------
   function setStatus(msg) { $('status').hidden = !msg; $('status').textContent = msg || ''; }
   function showLogin(err) { $('login').hidden = false; $('main').hidden = true; $('login-error').hidden = !err; $('login-error').textContent = err ? 'Could not sign in: ' + err : ''; }
@@ -373,13 +519,14 @@
       location.href = ATHOM + '/oauth2/authorise?client_id=' + encodeURIComponent(C.clientId) + '&redirect_uri=' + encodeURIComponent(C.redirectUri) + '&response_type=code';
     });
     document.querySelectorAll('.tabbtn').forEach((b) => b.addEventListener('click', () => switchTab(b.dataset.tab)));
-    $('zone-chips').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b) return; state.zone = b.dataset.zone; renderChips(); renderHomeDevices(); });
     $('settings-btn').addEventListener('click', () => openSheet(true));
     $('sheet-close').addEventListener('click', () => openSheet(false));
     $('sheet-backdrop').addEventListener('click', () => openSheet(false));
     $('theme-select').addEventListener('change', (e) => { if (DEMO) mem.theme = e.target.value; else store.set('theme', e.target.value); applyTheme(); });
     $('logout-btn').addEventListener('click', () => { ['oauth', 'homey'].forEach((k) => store.del(k)); openSheet(false); state.devices = {}; showLogin(); });
     document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(true); });
+    let rz = null;
+    window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(renderHeat, 150); });
   }
 
   // ---------- loops ----------
@@ -411,6 +558,7 @@
       showMain();
       setStatus('Demo: sample devices and today’s prices. Sign-in and live data work on the real address.');
       render();
+      loadHeat();
       setInterval(() => render(), 60000);
       return;
     }
@@ -437,6 +585,8 @@
     }
     loadPrices().then(render).catch(() => { if (!state.prices.length) setStatus('Electricity prices could not be loaded right now.'); });
     render();
+    loadHeat();
+    setInterval(loadHeat, 10 * 60000);
     setInterval(() => tick(false), (C.refreshSeconds || 15) * 1000);
     setInterval(() => tick(true), 10 * 60000);
   }

@@ -13,4 +13,13 @@ window.HOME_DEMO_DATA = function (state, day) {
   });
   state.pricesDay = day;
   state.homey = { name: "Joakim's Homey Pro (demo)" };
+  // 24 hours of example history for the "How the house holds heat" tile
+  var now = Date.now(), H = 3600000;
+  var g = [21.9,21.9,21.8,21.8,21.7,21.7,21.6,21.6,21.5,21.5,21.5,21.6,21.7,21.8,21.8,21.7,21.7,21.6,21.6,21.5,21.5,21.4,21.4,21.4,21.4];
+  var f = [20.9,20.8,20.7,20.6,20.5,20.4,20.3,20.2,20.1,20.0,20.0,20.1,20.2,20.3,20.3,20.2,20.1,20.0,20.0,19.9,19.9,19.8,19.8,19.8,19.8];
+  var o = [5.8,5.3,4.7,4.0,3.2,2.4,1.6,0.8,0.1,-0.5,-0.9,-0.6,0.3,1.4,2.4,3.0,3.2,2.8,2.1,1.4,0.8,0.3,0.0,-0.2,-0.4];
+  var mk = function (arr) { return arr.map(function (v, i) { return { t: now - (24 - i) * H, v: v }; }); };
+  state.heat.hist = { ground: mk(g), first: mk(f) };
+  state.heat.outside = { now: -0.4, series: mk(o) };
+  state.heat.source = 'insights';
 };

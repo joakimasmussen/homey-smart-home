@@ -76,8 +76,28 @@
         </article>
       </div>
 
-      <div id="zone-chips" class="chips" role="toolbar" aria-label="Filter by room"></div>
-      <div id="home-devices" class="tiles"></div>
+      <article class="card heat-card" id="heat-card">
+        <div class="row-between">
+          <h2 class="h2">How the house holds heat</h2>
+          <span id="heat-badge" class="pill">—</span>
+        </div>
+        <div class="heat-stats">
+          <div class="heat-stat"><span class="muted tiny-label">Ground floor</span><span id="heat-ground" class="heat-num">—</span><span id="heat-ground-d" class="muted tiny-label">—</span></div>
+          <div class="heat-stat"><span class="muted tiny-label">1st floor</span><span id="heat-first" class="heat-num">—</span><span id="heat-first-d" class="muted tiny-label">—</span></div>
+          <div class="heat-stat"><span class="muted tiny-label">Outside</span><span id="heat-out" class="heat-num">—</span><span id="heat-out-d" class="muted tiny-label">—</span></div>
+        </div>
+        <div id="heat-chart" class="heat-chart" role="img" aria-label="Last 24 hours of ground floor, 1st floor and outside temperature"></div>
+        <div class="heat-legend muted">
+          <span><i class="sw sw-ground"></i>Ground floor</span>
+          <span><i class="sw sw-first"></i>1st floor</span>
+          <span><i class="sw sw-out"></i><span id="heat-out-label">Outside</span></span>
+        </div>
+        <p id="heat-summary" class="heat-summary">Collecting the last 24 hours…</p>
+        <div class="heat-loss row-between">
+          <div><div class="strong small">Heat loss</div><div class="muted tiny">Appears when the heat pump's PowerTag is moved</div></div>
+          <span class="heat-loss-val">— W/°C</span>
+        </div>
+      </article>
     </section>
 
     <!-- ENERGY -->
