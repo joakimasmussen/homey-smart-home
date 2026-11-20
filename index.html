@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#E9EFEA" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0C1310" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Home">
+<title>Home</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="app" class="app">
+
+  <section id="login" class="login" hidden>
+    <div class="login-card">
+      <div class="logo" aria-hidden="true">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"></path><path d="M12.5 10.5l-2 3h3l-2 3"></path></svg>
+      </div>
+      <h1 class="display">Home</h1>
+      <p class="muted">Your devices and electricity prices, live from your Homey Pro.</p>
+      <button id="login-btn" class="btn-primary" type="button">Sign in with Homey</button>
+      <p id="login-error" class="error" hidden></p>
+    </div>
+  </section>
+
+  <main id="main" class="main" hidden>
+    <header class="topbar">
+      <div class="topbar-text">
+        <span id="now-label" class="muted small">—</span>
+        <h1 id="page-title" class="display">Home</h1>
+      </div>
+      <button id="settings-btn" class="icon-btn" type="button" aria-label="Settings">
+        <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg>
+      </button>
+    </header>
+
+    <div id="status" class="status" hidden></div>
+
+    <!-- HOME -->
+    <section id="tab-home" class="tab">
+      <article class="card price-card">
+        <div class="row-between">
+          <span class="muted small">Electricity right now</span>
+          <span id="level-pill" class="pill">—</span>
+        </div>
+        <div class="price-now"><span id="price-now" class="big">—</span><span class="muted">kr/kWh</span></div>
+        <div id="bars" class="bars" role="img" aria-label="Hourly all-in price today"></div>
+        <div class="bar-axis muted"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div>
+        <div class="next-cheap">
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="accent-cheap"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>
+          <span id="next-cheap-text" class="grow">—</span>
+          <span id="next-cheap-price" class="strong accent-cheap-text"></span>
+        </div>
+        <p id="tariff-note" class="tiny muted" hidden>Grid tariff is a sample until your grid company's prices are added.</p>
+      </article>
+
+      <div class="grid-2">
+        <article class="card stat">
+          <span class="muted small">House now</span>
+          <span class="stat-num"><span id="house-power">—</span> <span class="unit">kW</span></span>
+          <span id="house-power-note" class="muted small">—</span>
+        </article>
+        <article class="card stat">
+          <span class="muted small">Inside</span>
+          <span class="stat-num"><span id="inside-temp">—</span><span class="unit">°</span></span>
+          <span id="inside-note" class="muted small">—</span>
+        </article>
+      </div>
+
+      <div id="zone-chips" class="chips" role="toolbar" aria-label="Filter by room"></div>
+      <div id="home-devices" class="tiles"></div>
+    </section>
+
+    <!-- ENERGY -->
+    <section id="tab-energy" class="tab" hidden>
+      <article class="card">
+        <h2 class="h2">Price breakdown now</h2>
+        <div id="breakdown" class="breakdown"></div>
+      </article>
+      <article class="card">
+        <div class="row-between"><h2 class="h2">Today</h2><span class="muted small">kr/kWh, all-in</span></div>
+        <div id="list-today" class="hour-list"></div>
+      </article>
+      <article class="card">
+        <div class="row-between"><h2 class="h2">Tomorrow</h2><span class="muted small">kr/kWh, all-in</span></div>
+        <div id="list-tomorrow" class="hour-list"></div>
+      </article>
+    </section>
+
+    <!-- DEVICES -->
+    <section id="tab-devices" class="tab" hidden>
+      <div id="zone-groups"></div>
+    </section>
+
+    <!-- HISTORY -->
+    <section id="tab-history" class="tab" hidden>
+      <article class="card">
+        <h2 class="h2">History</h2>
+        <p class="muted">Graphs from Homey Insights come in the next version: temperature, humidity, power and cost over the day, week and month.</p>
+      </article>
+    </section>
+
+    <nav class="tabbar" aria-label="Main">
+      <button class="tabbtn" data-tab="home" type="button" aria-current="page">
+        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"></path></svg>Home</button>
+      <button class="tabbtn" data-tab="energy" type="button">
+        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7z"></path></svg>Energy</button>
+      <button class="tabbtn" data-tab="devices" type="button">
+        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="2"></rect><rect x="14" y="3" width="7" height="7" rx="2"></rect><rect x="3" y="14" width="7" height="7" rx="2"></rect><rect x="14" y="14" width="7" height="7" rx="2"></rect></svg>Devices</button>
+      <button class="tabbtn" data-tab="history" type="button">
+        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 3v18h18M7 15l4-4 3 3 5-6"></path></svg>History</button>
+    </nav>
+  </main>
+
+  <div id="sheet-backdrop" class="sheet-backdrop" hidden></div>
+  <div id="sheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" hidden>
+    <h2 id="sheet-title" class="h2">Settings</h2>
+    <label class="field" for="theme-select">Appearance
+      <select id="theme-select">
+        <option value="auto">Follow phone</option>
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+      </select>
+    </label>
+    <p id="homey-name" class="muted small"></p>
+    <button id="logout-btn" class="btn-secondary" type="button">Sign out</button>
+    <button id="sheet-close" class="btn-primary" type="button">Done</button>
+  </div>
+</div>
+<script src="config.js"></script>
+<script src="demo.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
