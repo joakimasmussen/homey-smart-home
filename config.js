@@ -18,7 +18,7 @@ window.APP_CONFIG = {
       { from: 21, to: 24, kr: 0.39 },
     ],
     energinet: 0.14,
-    supplierMarkup: 0.08,
+    supplierMarkup: 0.0776,
     elafgift: 0.008, // 2026–27 rate, 0.8 øre/kWh excl. VAT
     vat: 0.25,
   },
