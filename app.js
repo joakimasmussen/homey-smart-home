@@ -123,8 +123,8 @@
     const vat = (p.spot + grid + other) * T.vat;
     return { ...p, grid, other, vat, total: p.spot + grid + other + vat };
   }
-  // Energi Data Service first (15-minute prices); it may refuse browser requests, so fall back to
-  // elprisenligenu.dk, which serves the same day-ahead prices with browser access allowed.
+  // elprisenligenu.dk first (same day-ahead prices, browser access allowed); Energi Data Service as a
+  // fallback, although it currently refuses requests from browsers.
   async function fromEnergiDataService(start, end) {
     const url = 'https://api.energidataservice.dk/dataset/DayAheadPrices?start=' + start + 'T00:00&end=' + end + 'T00:00&filter=' + encodeURIComponent(JSON.stringify({ PriceArea: [C.priceArea] })) + '&sort=TimeDK%20asc&limit=400';
     const r = await withTimeout((signal) => fetch(url, { signal }), 15000);
@@ -150,8 +150,11 @@
   async function loadPrices() {
     const start = dayKey(0), end = dayKey(2);
     let raw;
-    try { raw = await fromEnergiDataService(start, end); }
-    catch (e) { raw = (await fromElprisenLigeNu(start)).concat(await fromElprisenLigeNu(dayKey(1)).catch(() => [])); }
+    try {
+      raw = await fromElprisenLigeNu(start);
+      if (!raw.length) throw new Error('no prices');
+      raw = raw.concat(await fromElprisenLigeNu(dayKey(1)).catch(() => []));
+    } catch (e) { raw = await fromEnergiDataService(start, end); }
     state.prices = raw.map(withAllIn);
     state.pricesDay = start;
     setS('prices', { day: start, list: state.prices });
@@ -377,12 +380,12 @@
     state.heat.outside = { now: j.current ? j.current.temperature_2m : (series.length ? series[series.length - 1].v : null), series };
   }
 
-  // Homey Insights: try the two address forms the Web API uses for a log's entries.
+  // Homey Insights: entries live at /log/<owner uri>/<log id>/entry (second form kept as a fallback).
   async function insightSeries(deviceId) {
     const full = 'homey:device:' + deviceId + ':measure_temperature';
     const paths = [
+      '/api/manager/insights/log/' + encodeURIComponent('homey:device:' + deviceId) + '/' + encodeURIComponent(full) + '/entry?resolution=last24Hours',
       '/api/manager/insights/log/' + encodeURIComponent(full) + '/entry?resolution=last24Hours',
-      '/api/manager/insights/log/' + encodeURIComponent('homey:device:' + deviceId) + '/measure_temperature/entry?resolution=last24Hours',
     ];
     for (const p of paths) {
       try {

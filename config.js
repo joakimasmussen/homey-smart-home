@@ -28,8 +28,8 @@ window.APP_CONFIG = {
 
   // Which temperature sensors belong to which floor, by device name in Homey.
   floors: {
-    ground: { label: 'Ground floor', devices: ['Fugt/Temp Køkken'] },
-    first: { label: '1st floor', devices: ['Fugt/Temp 1.Sal'] },
+    ground: { label: 'Ground floor', devices: ['Temp/fugtsensor', 'Fugt/Temp Køkken'] },
+    first: { label: '1st floor', devices: ['TemperatureHumiditySensor', 'Fugt/Temp 1.Sal'] },
   },
 
   refreshSeconds: 15,
