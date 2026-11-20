@@ -269,8 +269,8 @@
     const win = hrs.slice(h).map((x) => ({ ...x, day: 0 })).concat(hourly(tomorrow).slice(0, h).map((x) => ({ ...x, day: 1 })));
     const lvl = levelFn(win);
     const now = state.prices.find((p) => p.t === nowKey());
-    $('tariff-note').hidden = false;
-    $('tariff-note').textContent = state.tariffs ? 'Tariffs from Eloverblik for your meter. Supplier markup is an estimate.' : 'Grid tariff is a sample. Add your Eloverblik token in Settings for your real tariffs.';
+    // tariff info lives in Settings and on the Energy tab; the front tile stays clean
+    $('tariff-note').hidden = true;
     if (!now) {
       $('price-now').textContent = '—';
       $('level-pill').textContent = state.prices.length ? 'No price for now' : 'Loading prices';
