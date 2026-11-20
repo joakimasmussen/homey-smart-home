@@ -264,9 +264,11 @@
   function renderPrices() {
     const today = dayKey(0), tomorrow = dayKey(1);
     const hrs = hourly(today);
-    const lvl = levelFn(hrs);
-    const now = state.prices.find((p) => p.t === nowKey());
     const h = nowHour();
+    // rolling 24 hours: this hour and the next 23 (tomorrow's are published around 13:00)
+    const win = hrs.slice(h).map((x) => ({ ...x, day: 0 })).concat(hourly(tomorrow).slice(0, h).map((x) => ({ ...x, day: 1 })));
+    const lvl = levelFn(win);
+    const now = state.prices.find((p) => p.t === nowKey());
     $('tariff-note').hidden = false;
     $('tariff-note').textContent = state.tariffs ? 'Tariffs from Eloverblik for your meter. Supplier markup is an estimate.' : 'Grid tariff is a sample. Add your Eloverblik token in Settings for your real tariffs.';
     if (!now) {
@@ -279,12 +281,19 @@
       $('level-pill').textContent = L === 'peak' ? 'Peak hours' : L === 'cheap' ? 'Cheap now' : 'Normal';
       $('level-pill').className = 'pill' + (L === 'mid' ? '' : ' ' + L);
     }
-    const max = Math.max(1, ...hrs.map((x) => x.total || 0));
-    $('bars').innerHTML = hrs.map((x) => {
+    const max = Math.max(1, ...win.map((x) => x.total || 0));
+    $('bars').innerHTML = win.map((x, i) => {
       const ht = x.total == null ? 4 : Math.max(4, Math.round((x.total / max) * 72));
-      const cls = 'bar ' + lvl(x.total) + (x.h < h ? ' past' : '') + (x.h === h ? ' now' : '');
+      const cls = 'bar ' + (x.total == null ? 'pending' : lvl(x.total)) + (i === 0 ? ' now' : '') + (x.day === 1 && x.h === 0 ? ' midnight' : '');
       return '<div class="' + cls + '" style="height:' + ht + 'px"></div>';
     }).join('');
+    $('bars').setAttribute('aria-label', 'All-in price for the next 24 hours');
+    $('bar-axis').innerHTML = [0, 6, 12, 18, 23].map((i) => {
+      const x = win[i];
+      return '<span>' + (i === 0 ? 'Now' : String(x.h).padStart(2, '0')) + '</span>';
+    }).join('');
+    const firstTomorrow = win.findIndex((x) => x.day === 1);
+    $('bars-note').textContent = firstTomorrow < 0 ? '' : win.slice(firstTomorrow).some((x) => x.total == null) ? 'Tomorrow’s prices arrive around 13:00' : 'Line marks midnight';
     // cheapest next hour, from the next hour on, today and tomorrow
     const ahead = hrs.filter((x) => x.h > h && x.total != null).map((x) => ({ ...x, day: 'today' }))
       .concat(hourly(tomorrow).filter((x) => x.total != null).map((x) => ({ ...x, day: 'tomorrow' })));

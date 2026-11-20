@@ -11,6 +11,13 @@ window.HOME_DEMO_DATA = function (state, day) {
     var vat = (s + g + other) * T.vat;
     return { t: day + 'T' + String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0'), spot: s, grid: g, other: other, vat: vat, total: s + g + other + vat };
   });
+  // tomorrow: the same curve a little cheaper, so the rolling 24 hours can be seen in the demo
+  var d = new Date(day + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + 1);
+  var tomorrow = d.toISOString().slice(0, 10);
+  state.prices = state.prices.concat(state.prices.map(function (p) {
+    var s2 = p.spot * 0.85, vat = (s2 + p.grid + p.other) * T.vat;
+    return { t: tomorrow + p.t.slice(10), spot: s2, grid: p.grid, other: p.other, vat: vat, total: s2 + p.grid + p.other + vat };
+  }));
   state.pricesDay = day;
   state.homey = { name: "Joakim's Homey Pro (demo)" };
   // 24 hours of example history for the "How the house holds heat" tile

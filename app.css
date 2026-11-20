@@ -145,3 +145,9 @@ button, select { font: inherit; color: inherit; }
 /* Settings: token field */
 .field textarea { border-radius: 12px; border: 1px solid var(--chip-line); background: var(--card-2); color: var(--ink); padding: 10px 12px; font: 13px/1.4 ui-monospace, Menlo, monospace; resize: vertical; }
 .sheet { max-height: 90dvh; overflow-y: auto; }
+
+/* Rolling 24 h price bars */
+.bar.pending { background: transparent; border: 1px dashed var(--chip-line); }
+.bar.midnight { box-shadow: -3px 0 0 -1px var(--muted); }
+.bars-note { margin: -8px 0 0; }
+.bars-note:empty { display: none; }
