@@ -60,7 +60,7 @@
           <span id="next-cheap-text" class="grow">—</span>
           <span id="next-cheap-price" class="strong accent-cheap-text"></span>
         </div>
-        <p id="tariff-note" class="tiny muted" hidden>Grid tariff is a sample until your grid company's prices are added.</p>
+        <p id="tariff-note" class="tiny muted" hidden></p>
       </article>
 
       <div class="grid-2">
@@ -70,9 +70,9 @@
           <span id="house-power-note" class="muted small">—</span>
         </article>
         <article class="card stat">
-          <span class="muted small">Inside</span>
-          <span class="stat-num"><span id="inside-temp">—</span><span class="unit">°</span></span>
-          <span id="inside-note" class="muted small">—</span>
+          <span id="yday-label" class="muted small">Yesterday</span>
+          <span class="stat-num"><span id="yday-cost">—</span> <span class="unit">kr</span></span>
+          <span id="yday-note" class="muted small">—</span>
         </article>
       </div>
 
@@ -151,6 +151,12 @@
         <option value="dark">Dark</option>
       </select>
     </label>
+    <label class="field" for="elo-token">Eloverblik token
+      <textarea id="elo-token" rows="3" autocomplete="off" spellcheck="false" placeholder="Paste the token from eloverblik.dk"></textarea>
+    </label>
+    <p class="muted tiny">Create it at eloverblik.dk: log in with MitID, then Datadeling → Opret token. It is saved only on this device.</p>
+    <p id="elo-status" class="muted small"></p>
+    <button id="elo-save" class="btn-secondary" type="button">Save token</button>
     <p id="homey-name" class="muted small"></p>
     <button id="logout-btn" class="btn-secondary" type="button">Sign out</button>
     <button id="sheet-close" class="btn-primary" type="button">Done</button>

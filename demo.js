@@ -22,4 +22,6 @@ window.HOME_DEMO_DATA = function (state, day) {
   state.heat.hist = { ground: mk(g), first: mk(f) };
   state.heat.outside = { now: -0.4, series: mk(o) };
   state.heat.source = 'insights';
+  // example of yesterday's consumption from Eloverblik
+  state.yesterday = { day: 'yesterday', back: 1, kwh: 41.2, cost: 128.4, avg: 3.12, priced: true };
 };

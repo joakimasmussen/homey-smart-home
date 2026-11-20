@@ -115,13 +115,18 @@
 
   // ---------- prices ----------
   function gridAt(h) { return (C.tariffs.grid.find((g) => h >= g.from && h < g.to) || { kr: 0 }).kr; }
-  function withAllIn(p) {
+  // All network tariffs and taxes for an hour, kr/kWh excl. VAT. Real ones from Eloverblik when the
+  // token is set (they already include Energinet's tariffs and elafgift), otherwise the sample in config.js.
+  function tariffAt(h) {
     const T = C.tariffs;
+    if (state.tariffs && state.tariffs.hourly) return { grid: state.tariffs.hourly[h], other: T.supplierMarkup };
+    return { grid: gridAt(h), other: T.energinet + T.supplierMarkup + T.elafgift };
+  }
+  function withAllIn(p) {
     const h = +p.t.slice(11, 13);
-    const grid = gridAt(h);
-    const other = T.energinet + T.supplierMarkup + T.elafgift;
-    const vat = (p.spot + grid + other) * T.vat;
-    return { ...p, grid, other, vat, total: p.spot + grid + other + vat };
+    const { grid, other } = tariffAt(h);
+    const vat = (p.spot + grid + other) * C.tariffs.vat;
+    return { t: p.t, spot: p.spot, grid, other, vat, total: p.spot + grid + other + vat };
   }
   // elprisenligenu.dk first (same day-ahead prices, browser access allowed); Energi Data Service as a
   // fallback, although it currently refuses requests from browsers.
@@ -262,7 +267,8 @@
     const lvl = levelFn(hrs);
     const now = state.prices.find((p) => p.t === nowKey());
     const h = nowHour();
-    $('tariff-note').hidden = !C.tariffs.sample;
+    $('tariff-note').hidden = false;
+    $('tariff-note').textContent = state.tariffs ? 'Tariffs from Eloverblik for your meter. Supplier markup is an estimate.' : 'Grid tariff is a sample. Add your Eloverblik token in Settings for your real tariffs.';
     if (!now) {
       $('price-now').textContent = '—';
       $('level-pill').textContent = state.prices.length ? 'No price for now' : 'Loading prices';
@@ -302,15 +308,7 @@
       $('house-power').textContent = '—';
       $('house-power-note').textContent = 'Add PowerTags to see this';
     }
-    const temps = devs.filter((d) => d.capabilitiesObj && d.capabilitiesObj.measure_temperature && num(d.capabilitiesObj.measure_temperature.value) != null);
-    if (temps.length) {
-      const avg = temps.reduce((a, d) => a + d.capabilitiesObj.measure_temperature.value, 0) / temps.length;
-      $('inside-temp').textContent = f1(avg);
-      $('inside-note').textContent = temps.length === 1 ? temps[0].name : 'Average of ' + temps.length + ' sensors';
-    } else {
-      $('inside-temp').textContent = '—';
-      $('inside-note').textContent = 'No temperature sensors';
-    }
+    renderYesterday();
   }
 
   function renderChips() {
@@ -336,9 +334,11 @@
   function renderEnergy() {
     const now = state.prices.find((p) => p.t === nowKey());
     const T = C.tariffs;
-    const s = T.sample ? ' (sample)' : '';
     if (now) {
-      const rows = [['Spot price, ' + C.priceArea, now.spot], ['Grid tariff' + s, now.grid], ['Energinet' + s, T.energinet], ['Supplier markup' + s, T.supplierMarkup], ['Elafgift', T.elafgift], ['VAT 25 %', now.vat]];
+      const h = +now.t.slice(11, 13);
+      const rows = state.tariffs
+        ? [['Spot price, ' + C.priceArea, now.spot]].concat(state.tariffs.parts.filter((p) => p.per[h]).map((p) => [p.name, p.per[h]]), [['Supplier markup (estimate)', T.supplierMarkup], ['VAT 25 %', now.vat]])
+        : [['Spot price, ' + C.priceArea, now.spot], ['Grid tariff (sample)', now.grid], ['Energinet (sample)', T.energinet], ['Supplier markup (estimate)', T.supplierMarkup], ['Elafgift', T.elafgift], ['VAT 25 %', now.vat]];
       $('breakdown').innerHTML = rows.map((r) => '<div class="row-between"><span>' + esc(r[0]) + '</span><span>' + f2(r[1]) + '</span></div>').join('') +
         '<div class="row-between total"><span>Total</span><span>' + f2(now.total) + ' kr/kWh</span></div>';
     } else {
@@ -354,6 +354,114 @@
     };
     list(dayKey(0), 'list-today', true);
     list(dayKey(1), 'list-tomorrow', false);
+  }
+
+  // ---------- Eloverblik: real tariffs and yesterday's consumption ----------
+  const ELO = 'https://api.eloverblik.dk/customerapi/api';
+  function keyDK(ms) { const p = partsDK(new Date(ms)); return `${p.year}-${p.month}-${p.day}T${p.hour}:${String(Math.floor(+p.minute / 15) * 15).padStart(2, '0')}`; }
+
+  async function eloToken() {
+    const c = store.get('eloAccess');
+    if (c && c.token && Date.now() < c.exp) return c.token;
+    const refresh = store.get('eloRefresh');
+    if (!refresh) throw new Error('no token');
+    const r = await withTimeout((signal) => fetch(ELO + '/token', { signal, headers: { Authorization: 'Bearer ' + refresh } }), 30000);
+    if (r.status === 401) throw new Error('the token was refused, create a new one');
+    if (!r.ok) throw new Error('error ' + r.status);
+    const j = await r.json();
+    store.set('eloAccess', { token: j.result, exp: Date.now() + 20 * 3600000 });
+    return j.result;
+  }
+  async function elo(path, body) {
+    const t = await eloToken();
+    const r = await withTimeout((signal) => fetch(ELO + path, { signal, method: body ? 'POST' : 'GET', headers: { Authorization: 'Bearer ' + t, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }), 45000);
+    if (r.status === 401) { store.del('eloAccess'); throw new Error('access expired, try again'); }
+    if (!r.ok) throw new Error('error ' + r.status);
+    return r.json();
+  }
+  async function eloMeter() {
+    const saved = store.get('eloMeter');
+    if (saved) return saved;
+    const j = await elo('/meteringpoints/meteringpoints?includeAll=false');
+    const list = j.result || [];
+    const m = list.find((x) => x.typeOfMP === 'E17') || list[0];
+    if (!m) throw new Error('no meter found');
+    const meter = { id: m.meteringPointId };
+    store.set('eloMeter', meter);
+    return meter;
+  }
+  async function loadTariffs() {
+    const meter = await eloMeter();
+    const j = await elo('/meteringpoints/meteringpoint/getcharges', { meteringPoints: { meteringPoint: [meter.id] } });
+    const res = (j.result && j.result[0] && j.result[0].result) || {};
+    const hourly = new Array(24).fill(0);
+    const parts = (res.tariffs || []).map((t) => {
+      const prices = (t.prices || []).map((p) => ({ pos: +p.position, kr: +p.price })).filter((p) => num(p.kr) != null);
+      const per = new Array(24).fill(0);
+      if (prices.length === 1) per.fill(prices[0].kr);
+      else if (prices.length > 1) {
+        // 24 hourly or 96 quarter-hour positions: average them per hour
+        const sums = new Array(24).fill(0), cnt = new Array(24).fill(0);
+        prices.forEach((p) => { const h = Math.min(23, Math.max(0, Math.floor(((p.pos - 1) * 24) / prices.length))); sums[h] += p.kr; cnt[h]++; });
+        for (let h = 0; h < 24; h++) per[h] = cnt[h] ? sums[h] / cnt[h] : 0;
+      }
+      per.forEach((v, h) => { hourly[h] += v; });
+      return { name: t.name || t.description || 'Tariff', per };
+    });
+    if (!parts.length) throw new Error('no tariffs returned');
+    state.tariffs = { at: Date.now(), hourly, parts };
+    store.set('tariffs', state.tariffs);
+    state.prices = state.prices.map(withAllIn);
+  }
+  async function loadYesterday() {
+    const meter = await eloMeter();
+    for (const back of [1, 2]) {
+      const day = dayKey(-back), next = dayKey(-back + 1);
+      const j = await elo('/meterdata/gettimeseries/' + day + '/' + next + '/Hour', { meteringPoints: { meteringPoint: [meter.id] } });
+      const doc = j.result && j.result[0] && j.result[0].MyEnergyData_MarketDocument;
+      const pts = [];
+      ((doc && doc.TimeSeries) || []).forEach((ts) => (ts.Period || []).forEach((per) => {
+        const start = new Date(per.timeInterval.start).getTime();
+        const mins = per.resolution === 'PT15M' ? 15 : 60;
+        (per.Point || []).forEach((pt) => { const q = +pt['out_Quantity.quantity']; if (num(q) != null) pts.push({ t: start + (+pt.position - 1) * mins * 60000, mins, kwh: q }); });
+      }));
+      if (pts.length < 20) continue; // not published yet: try the day before
+      const prices = new Map((await fromElprisenLigeNu(day)).map((p) => [p.t, withAllIn(p).total]));
+      let kwh = 0, cost = 0;
+      for (const p of pts) {
+        kwh += p.kwh;
+        const qs = [];
+        for (let m = 0; m < p.mins; m += 15) { const pr = prices.get(keyDK(p.t + m * 60000)); if (pr != null) qs.push(pr); }
+        if (qs.length) cost += p.kwh * (qs.reduce((a, b) => a + b, 0) / qs.length);
+      }
+      state.yesterday = { day, back, kwh, cost, avg: kwh ? cost / kwh : null, priced: prices.size > 0 };
+      store.set('yesterday', state.yesterday);
+      return;
+    }
+    state.yesterday = { none: true, at: Date.now() };
+  }
+  async function loadEloverblik(force) {
+    if (DEMO || !store.get('eloRefresh')) { render(); return; }
+    state.eloError = null;
+    try {
+      const t = state.tariffs;
+      if (force || !t || Date.now() - t.at > 24 * 3600000) await loadTariffs();
+      const y = state.yesterday;
+      if (force || !y || y.none || y.back !== 1 || y.day !== dayKey(-1)) await loadYesterday();
+    } catch (e) { state.eloError = 'Eloverblik: ' + e.message; }
+    render();
+  }
+
+  function renderYesterday() {
+    const y = state.yesterday;
+    $('yday-label').textContent = 'Yesterday';
+    if (!DEMO && !store.get('eloRefresh')) { $('yday-cost').textContent = '—'; $('yday-note').textContent = 'Add your Eloverblik token in Settings'; return; }
+    if (state.eloError && !(y && y.kwh != null)) { $('yday-cost').textContent = '—'; $('yday-note').textContent = state.eloError; return; }
+    if (!y) { $('yday-cost').textContent = '—'; $('yday-note').textContent = 'Loading from Eloverblik…'; return; }
+    if (y.none) { $('yday-cost').textContent = '—'; $('yday-note').textContent = 'Not published by Eloverblik yet'; return; }
+    if (y.back !== 1) $('yday-label').textContent = new Intl.DateTimeFormat('en-GB', { weekday: 'long', timeZone: TZ }).format(new Date(y.day + 'T12:00:00'));
+    $('yday-cost').textContent = y.priced ? Math.round(y.cost) : '—';
+    $('yday-note').textContent = f1(y.kwh) + ' kWh' + (y.priced ? ' · ' + f2(y.avg) + ' kr/kWh' : '');
   }
 
   // ---------- How the house holds heat ----------
@@ -515,7 +623,16 @@
     render();
     window.scrollTo(0, 0);
   }
-  function openSheet(open) { $('sheet').hidden = !open; $('sheet-backdrop').hidden = !open; if (open && state.homey) $('homey-name').textContent = 'Connected to ' + (state.homey.name || 'your Homey'); }
+  function eloStatus() {
+    const has = !!store.get('eloRefresh');
+    const m = store.get('eloMeter');
+    $('elo-status').textContent = !has ? 'No token saved.' : state.eloError ? state.eloError : state.tariffs && m ? 'Connected to meter …' + String(m.id).slice(-4) + '. Tariffs and consumption come from Eloverblik.' : 'Token saved. Connecting…';
+  }
+  function openSheet(open) {
+    $('sheet').hidden = !open; $('sheet-backdrop').hidden = !open;
+    if (open) { eloStatus(); $('elo-token').value = ''; $('elo-token').placeholder = store.get('eloRefresh') ? 'Token saved. Paste a new one to replace it.' : 'Paste the token from eloverblik.dk'; }
+    if (open && state.homey) $('homey-name').textContent = 'Connected to ' + (state.homey.name || 'your Homey');
+  }
 
   function wireUI() {
     $('login-btn').addEventListener('click', () => {
@@ -526,6 +643,17 @@
     $('sheet-close').addEventListener('click', () => openSheet(false));
     $('sheet-backdrop').addEventListener('click', () => openSheet(false));
     $('theme-select').addEventListener('change', (e) => { if (DEMO) mem.theme = e.target.value; else store.set('theme', e.target.value); applyTheme(); });
+    $('elo-save').addEventListener('click', async () => {
+      const v = $('elo-token').value.trim().replace(/^Bearer\s+/i, '');
+      if (!v) { $('elo-status').textContent = 'Paste the token first.'; return; }
+      ['eloAccess', 'eloMeter', 'tariffs', 'yesterday'].forEach((k) => store.del(k));
+      store.set('eloRefresh', v);
+      state.tariffs = null; state.yesterday = null;
+      $('elo-token').value = '';
+      $('elo-status').textContent = 'Checking the token with Eloverblik…';
+      await loadEloverblik(true);
+      eloStatus();
+    });
     $('logout-btn').addEventListener('click', () => { ['oauth', 'homey'].forEach((k) => store.del(k)); openSheet(false); state.devices = {}; showLogin(); });
     document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(true); });
     let rz = null;
@@ -574,8 +702,10 @@
     }
     if (!store.get('oauth')) { showLogin(); return; }
     showMain();
+    state.tariffs = store.get('tariffs');
+    state.yesterday = store.get('yesterday');
     const cached = store.get('prices');
-    if (cached && cached.day === dayKey(0)) { state.prices = cached.list; state.pricesDay = cached.day; }
+    if (cached && cached.day === dayKey(0)) { state.prices = cached.list.map(withAllIn); state.pricesDay = cached.day; }
     render();
     setStatus('Connecting to your Homey…');
     try {
@@ -589,7 +719,9 @@
     loadPrices().then(render).catch(() => { if (!state.prices.length) setStatus('Electricity prices could not be loaded right now.'); });
     render();
     loadHeat();
+    loadEloverblik().then(() => loadPrices()).then(render).catch(() => {});
     setInterval(loadHeat, 10 * 60000);
+    setInterval(() => loadEloverblik(), 60 * 60000);
     setInterval(() => tick(false), (C.refreshSeconds || 15) * 1000);
     setInterval(() => tick(true), 10 * 60000);
   }
