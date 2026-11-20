@@ -123,13 +123,36 @@
     const vat = (p.spot + grid + other) * T.vat;
     return { ...p, grid, other, vat, total: p.spot + grid + other + vat };
   }
-  async function loadPrices() {
-    const start = dayKey(0), end = dayKey(2);
+  // Energi Data Service first (15-minute prices); it may refuse browser requests, so fall back to
+  // elprisenligenu.dk, which serves the same day-ahead prices with browser access allowed.
+  async function fromEnergiDataService(start, end) {
     const url = 'https://api.energidataservice.dk/dataset/DayAheadPrices?start=' + start + 'T00:00&end=' + end + 'T00:00&filter=' + encodeURIComponent(JSON.stringify({ PriceArea: [C.priceArea] })) + '&sort=TimeDK%20asc&limit=400';
-    const r = await withTimeout((signal) => fetch(url, { signal }), 20000);
+    const r = await withTimeout((signal) => fetch(url, { signal }), 15000);
     if (!r.ok) throw new Error('prices ' + r.status);
     const j = await r.json();
-    state.prices = (j.records || []).filter((x) => x.DayAheadPriceDKK != null).map((x) => withAllIn({ t: x.TimeDK.slice(0, 16), spot: x.DayAheadPriceDKK / 1000 }));
+    return (j.records || []).filter((x) => x.DayAheadPriceDKK != null).map((x) => ({ t: x.TimeDK.slice(0, 16), spot: x.DayAheadPriceDKK / 1000 }));
+  }
+  async function fromElprisenLigeNu(day) {
+    const url = 'https://www.elprisenligenu.dk/api/v1/prices/' + day.slice(0, 4) + '/' + day.slice(5, 7) + '-' + day.slice(8, 10) + '_' + C.priceArea + '.json';
+    const r = await withTimeout((signal) => fetch(url, { signal }), 15000);
+    if (r.status === 404) return [];
+    if (!r.ok) throw new Error('prices ' + r.status);
+    const out = [];
+    for (const x of await r.json()) {
+      const a = new Date(x.time_start).getTime(), b = new Date(x.time_end).getTime();
+      for (let t = a; t < b; t += 15 * 60000) {
+        const p = partsDK(new Date(t));
+        out.push({ t: `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`, spot: x.DKK_per_kWh });
+      }
+    }
+    return out;
+  }
+  async function loadPrices() {
+    const start = dayKey(0), end = dayKey(2);
+    let raw;
+    try { raw = await fromEnergiDataService(start, end); }
+    catch (e) { raw = (await fromElprisenLigeNu(start)).concat(await fromElprisenLigeNu(dayKey(1)).catch(() => [])); }
+    state.prices = raw.map(withAllIn);
     state.pricesDay = start;
     setS('prices', { day: start, list: state.prices });
   }
