@@ -11,22 +11,24 @@ window.HOME_DEMO_DATA = function (state, day) {
     var vat = (s + g + other) * T.vat;
     return { t: day + 'T' + String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0'), spot: s, grid: g, other: other, vat: vat, total: s + g + other + vat };
   });
-  // tomorrow: the same curve a little cheaper, so the rolling 24 hours can be seen in the demo
+  // tomorrow as a forecast (as before 13:00), so the pale forecast bars can be seen in the demo
   var d = new Date(day + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + 1);
-  var tomorrow = d.toISOString().slice(0, 10);
-  state.prices = state.prices.concat(state.prices.map(function (p) {
-    var s2 = p.spot * 0.85, vat = (s2 + p.grid + p.other) * T.vat;
-    return { t: tomorrow + p.t.slice(10), spot: s2, grid: p.grid, other: p.other, vat: vat, total: s2 + p.grid + p.other + vat };
-  }));
+  var fc = [];
+  for (var h = 0; h < 24; h++) fc.push((spot[h * 4] + spot[h * 4 + 1] + spot[h * 4 + 2] + spot[h * 4 + 3]) / 4 * 0.85);
+  state.forecast = { at: Date.now(), days: {} };
+  state.forecast.days[d.toISOString().slice(0, 10)] = fc;
   state.pricesDay = day;
   state.homey = { name: "Joakim's Homey Pro (demo)" };
   // 24 hours of example history for the "How the house holds heat" tile
   var now = Date.now(), H = 3600000;
   var g = [21.9,21.9,21.8,21.8,21.7,21.7,21.6,21.6,21.5,21.5,21.5,21.6,21.7,21.8,21.8,21.7,21.7,21.6,21.6,21.5,21.5,21.4,21.4,21.4,21.4];
   var f = [20.9,20.8,20.7,20.6,20.5,20.4,20.3,20.2,20.1,20.0,20.0,20.1,20.2,20.3,20.3,20.2,20.1,20.0,20.0,19.9,19.9,19.8,19.8,19.8,19.8];
+  // north room: a little cooler and flat; the south room warms up when the sun is on it around midday
+  var n = f.map(function (v) { return Math.round((v - 0.4) * 10) / 10; });
+  var sth = f.map(function (v, i) { var hr = new Date(now - (24 - i) * H).getHours(); var sun = hr >= 10 && hr <= 15 ? [0.6, 1.2, 1.7, 1.8, 1.4, 0.8][hr - 10] : 0; return Math.round((v + sun) * 10) / 10; });
   var o = [5.8,5.3,4.7,4.0,3.2,2.4,1.6,0.8,0.1,-0.5,-0.9,-0.6,0.3,1.4,2.4,3.0,3.2,2.8,2.1,1.4,0.8,0.3,0.0,-0.2,-0.4];
   var mk = function (arr) { return arr.map(function (v, i) { return { t: now - (24 - i) * H, v: v }; }); };
-  state.heat.hist = { ground: mk(g), first: mk(f) };
+  state.heat.hist = { ground: mk(g), south: mk(sth), north: mk(n) };
   state.heat.outside = { now: -0.4, series: mk(o) };
   state.heat.source = 'insights';
   // example of yesterday's consumption from Eloverblik

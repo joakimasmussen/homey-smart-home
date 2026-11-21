@@ -169,10 +169,29 @@
     for (let h = 0; h < 24; h++) {
       const key = day + 'T' + String(h).padStart(2, '0');
       const q = state.prices.filter((p) => p.t.startsWith(key));
-      out.push(q.length ? { h, total: q.reduce((a, p) => a + p.total, 0) / q.length } : { h, total: null });
+      if (q.length) { out.push({ h, total: q.reduce((a, p) => a + p.total, 0) / q.length }); continue; }
+      const f = state.forecast && state.forecast.days[day] && state.forecast.days[day][h];
+      out.push(f != null ? { h, total: withAllIn({ t: key + ':00', spot: f }).total, fc: true } : { h, total: null });
     }
     return out;
   }
+  // Forecast of the spot price from elpriser.org (their own weather-based model, not official),
+  // used only for hours that have no published price yet. Spot in DKK/kWh excl. VAT.
+  async function loadForecast() {
+    const r = await withTimeout((signal) => fetch('https://elpriser.org/api/forecast?area=' + C.priceArea + '&mode=spot_ex', { signal }), 20000);
+    if (!r.ok) throw new Error('forecast ' + r.status);
+    const j = await r.json();
+    const days = {};
+    (j.days || []).forEach((d) => {
+      if (d.type === 'actual' || !Array.isArray(d.prices)) return;
+      const hrs = new Array(24).fill(null);
+      d.prices.forEach((p) => { if (num(+p.price) != null && p.hour >= 0 && p.hour < 24) hrs[p.hour] = +p.price; });
+      days[d.date] = hrs;
+    });
+    state.forecast = { at: Date.now(), days };
+    setS('forecast', state.forecast);
+  }
+
   function levelFn(today) {
     const v = today.map((x) => x.total).filter((x) => x != null).sort((a, b) => a - b);
     if (!v.length) return () => 'mid';
@@ -284,8 +303,8 @@
     const max = Math.max(1, ...win.map((x) => x.total || 0));
     $('bars').innerHTML = win.map((x, i) => {
       const ht = x.total == null ? 4 : Math.max(4, Math.round((x.total / max) * 72));
-      const cls = 'bar ' + (x.total == null ? 'pending' : lvl(x.total)) + (i === 0 ? ' now' : '') + (x.day === 1 && x.h === 0 ? ' midnight' : '');
-      return '<div class="' + cls + '" style="height:' + ht + 'px"></div>';
+      const cls = 'bar ' + (x.total == null ? 'pending' : lvl(x.total)) + (x.fc ? ' fc' : '') + (i === 0 ? ' now' : '') + (x.day === 1 && x.h === 0 ? ' midnight' : '');
+      return '<div class="' + cls + '" style="height:' + ht + 'px"' + (x.day === 1 && x.h === 0 ? ' data-label="' + new Intl.DateTimeFormat('en-GB', { weekday: 'short', timeZone: TZ }).format(new Date(tomorrow + 'T12:00:00')) + '"' : '') + '></div>';
     }).join('');
     $('bars').setAttribute('aria-label', 'All-in price for the next 24 hours');
     $('bar-axis').innerHTML = [0, 6, 12, 18, 23].map((i) => {
@@ -293,13 +312,14 @@
       return '<span>' + (i === 0 ? 'Now' : String(x.h).padStart(2, '0')) + '</span>';
     }).join('');
     const firstTomorrow = win.findIndex((x) => x.day === 1);
-    $('bars-note').textContent = firstTomorrow < 0 ? '' : win.slice(firstTomorrow).some((x) => x.total == null) ? 'Tomorrow’s prices arrive around 13:00' : 'Line marks midnight';
+    const rest = firstTomorrow < 0 ? [] : win.slice(firstTomorrow);
+    $('bars-note').textContent = rest.some((x) => x.fc) ? 'Pale bars are a forecast. Real prices arrive around 13:00.' : rest.some((x) => x.total == null) ? 'Tomorrow’s prices arrive around 13:00' : '';
     // cheapest next hour, from the next hour on, today and tomorrow
     const ahead = hrs.filter((x) => x.h > h && x.total != null).map((x) => ({ ...x, day: 'today' }))
       .concat(hourly(tomorrow).filter((x) => x.total != null).map((x) => ({ ...x, day: 'tomorrow' })));
     if (ahead.length) {
       const best = ahead.reduce((a, b) => (b.total < a.total ? b : a));
-      $('next-cheap-text').innerHTML = 'Cheapest next at <b>' + String(best.h).padStart(2, '0') + ':00</b>' + (best.day === 'tomorrow' ? ' tomorrow' : '');
+      $('next-cheap-text').innerHTML = 'Cheapest next at <b>' + String(best.h).padStart(2, '0') + ':00</b>' + (best.day === 'tomorrow' ? ' tomorrow' : '') + (best.fc ? ' (forecast)' : '');
       $('next-cheap-price').textContent = f2(best.total) + ' kr';
     } else {
       $('next-cheap-text').textContent = 'Tomorrow’s prices arrive around 13:00';
@@ -359,7 +379,7 @@
       const lvl = levelFn(hrs);
       const max = Math.max(...hrs.map((x) => x.total));
       const h = nowHour();
-      $(el).innerHTML = hrs.map((x) => '<div class="hour-row' + (isToday && x.h === h ? ' now' : '') + (isToday && x.h < h ? ' past' : '') + '"><span>' + String(x.h).padStart(2, '0') + ':00</span><span class="track"><span class="fill ' + lvl(x.total) + '" style="display:block;width:' + Math.round((x.total / max) * 100) + '%"></span></span><span class="price">' + f2(x.total) + '</span></div>').join('');
+      $(el).innerHTML = (hrs.some((x) => x.fc) ? '<p class="muted small">Forecast from elpriser.org until the real prices are published around 13:00.</p>' : '') + hrs.map((x) => '<div class="hour-row' + (x.fc ? ' fc' : '') + (isToday && x.h === h ? ' now' : '') + (isToday && x.h < h ? ' past' : '') + '"><span>' + String(x.h).padStart(2, '0') + ':00</span><span class="track"><span class="fill ' + lvl(x.total) + '" style="display:block;width:' + Math.round((x.total / max) * 100) + '%"></span></span><span class="price">' + f2(x.total) + '</span></div>').join('');
     };
     list(dayKey(0), 'list-today', true);
     list(dayKey(1), 'list-tomorrow', false);
@@ -477,13 +497,20 @@
   state.heat = { outside: null, hist: {}, source: null };
   const DAY = 24 * 3600000;
 
+  const HEAT = (C.heat || []).length ? C.heat : [{ key: 'ground', label: 'Ground floor', zones: [] }];
+  const heatSpec = (key) => HEAT.find((x) => x.key === key) || { zones: [] };
   function floorDevices(key) {
-    const names = ((C.floors && C.floors[key] && C.floors[key].devices) || []).map((n) => n.trim().toLowerCase());
-    return Object.values(state.devices).filter((d) => names.includes(String(d.name).trim().toLowerCase()) && d.capabilitiesObj && d.capabilitiesObj.measure_temperature);
+    const spec = heatSpec(key);
+    const zones = (spec.zones || []).map((n) => n.trim().toLowerCase());
+    const names = (spec.devices || []).map((n) => n.trim().toLowerCase());
+    return Object.values(state.devices).filter((d) => d.capabilitiesObj && d.capabilitiesObj.measure_temperature &&
+      (zones.includes(zoneName(d.zone).trim().toLowerCase()) || names.includes(String(d.name).trim().toLowerCase())));
   }
   function floorNow(key) {
     const v = floorDevices(key).map((d) => d.capabilitiesObj.measure_temperature.value).filter((x) => num(x) != null);
-    return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+    if (v.length) return v.reduce((a, b) => a + b, 0) / v.length;
+    const h = DEMO && state.heat.hist[key];
+    return h && h.length ? h[h.length - 1].v : null;
   }
 
   async function loadOutside() {
@@ -518,9 +545,9 @@
 
   // Fallback history kept on this phone, one reading per floor every 10 minutes.
   function logLocal() {
-    const log = getS('heatlog') || { ground: [], first: [] };
+    const log = getS('heatlog') || {};
     const now = Date.now();
-    ['ground', 'first'].forEach((k) => {
+    HEAT.forEach(({ key: k }) => {
       const v = floorNow(k);
       const arr = log[k] || [];
       if (num(v) != null && (!arr.length || now - arr[arr.length - 1].t > 10 * 60000)) arr.push({ t: now, v });
@@ -532,7 +559,7 @@
 
   async function loadIndoor() {
     let gotInsights = false;
-    for (const k of ['ground', 'first']) {
+    for (const { key: k } of HEAT) {
       const devs = floorDevices(k);
       if (!devs.length) { state.heat.hist[k] = null; continue; }
       const series = await insightSeries(devs[0].id);
@@ -558,65 +585,118 @@
   }
   const signed = (d) => (d == null ? '' : (d > 0 ? '+' : d < 0 ? '−' : '±') + Math.abs(d).toFixed(1) + '°');
 
+  // How much warmer the south room is than the north room: now, in daylight (sun) and at night.
+  function southNorth(ss, sn) {
+    if (!ss.length || !sn.length) return null;
+    const pairs = ss.map((p) => { let best = null; for (const q of sn) if (Math.abs(q.t - p.t) <= 40 * 60000 && (!best || Math.abs(q.t - p.t) < Math.abs(best.t - p.t))) best = q; return best ? { t: p.t, d: p.v - best.v } : null; }).filter(Boolean);
+    if (pairs.length < 6) return null;
+    const hourOf = (t) => +new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', hourCycle: 'h23' }).format(new Date(t));
+    const day = pairs.filter((p) => { const h = hourOf(p.t); return h >= 10 && h < 16; });
+    const night = pairs.filter((p) => { const h = hourOf(p.t); return h >= 0 && h < 6; });
+    const avg = (a) => (a.length ? a.reduce((x, p) => x + p.d, 0) / a.length : null);
+    return { day: day.length ? Math.max(...day.map((p) => p.d)) : null, night: avg(night) };
+  }
+
   function renderHeat() {
     if (!$('heat-card')) return;
     if (!DEMO) logLocal();
-    const g = floorNow('ground'), f = floorNow('first');
+    const now = {}, ser = {}, chg = {};
+    HEAT.forEach(({ key }) => { now[key] = floorNow(key); ser[key] = seriesFor(key); chg[key] = change(ser[key], now[key]); });
     const out = state.heat.outside;
-    const sg = seriesFor('ground'), sf = seriesFor('first'), so = out ? out.series : [];
-    const cg = change(sg, g), cf = change(sf, f), co = out ? change(so, out.now) : null;
-    $('heat-ground').textContent = g == null ? '—' : f1(g) + '°';
-    $('heat-first').textContent = f == null ? '—' : f1(f) + '°';
-    $('heat-out').textContent = out && num(out.now) != null ? f1(out.now) + '°' : '—';
-    const dl = (el, d) => { $(el).textContent = d == null ? 'Collecting 24 h' : signed(d) + ' in 24 h'; $(el).className = 'muted tiny-label' + (d != null && d <= -0.8 ? ' delta-bad' : ''); };
-    dl('heat-ground-d', cg); dl('heat-first-d', cf);
-    $('heat-out-d').textContent = co == null ? (C.location ? C.location.name : '') : signed(co) + ' in 24 h';
-    $('heat-out-label').textContent = 'Outside' + (C.location ? ', ' + C.location.name : '');
+    const so = out ? out.series : [];
+    const co = out ? change(so, out.now) : null;
+    const arrow = (d) => (Math.abs(d) < 0.05 ? '→ 0.0°' : (d > 0 ? '↑ ' : '↓ ') + Math.abs(d).toFixed(1) + '°');
+    const dl = (el, d) => { if (!$(el)) return; $(el).textContent = d == null ? 'collecting' : arrow(d); $(el).className = 'heat-delta' + (d != null && d <= -0.8 ? ' delta-bad' : ''); };
+    const deg = (v) => f1(v).replace('-', '−') + '°';
+    HEAT.forEach(({ key }) => { if ($('heat-' + key)) $('heat-' + key).textContent = now[key] == null ? '—' : deg(now[key]); dl('heat-' + key + '-d', chg[key]); });
+    $('heat-out').textContent = out && num(out.now) != null ? deg(out.now) : '—';
+    // 24 h low and high with a dot for now
+    const colorsR = { ground: 'var(--ground)', south: 'var(--first)', north: 'var(--north)', out: 'var(--out)' };
+    const range = (key, list, cur) => {
+      const el = $('heat-' + key + '-r'); if (!el) return;
+      const vals = (list || []).map((p) => p.v).concat(num(cur) != null ? [cur] : []).filter((v) => num(v) != null);
+      if (vals.length < 3) { el.innerHTML = ''; return; }
+      const lo = Math.min(...vals), hi = Math.max(...vals);
+      const pos = hi - lo < 0.05 ? 50 : ((cur - lo) / (hi - lo)) * 100;
+      const short = (v) => v.toFixed(1).replace('-', '−') + '°';
+      el.innerHTML = '<span class="track"><span class="fill" style="background:' + colorsR[key] + '"></span>' + (num(cur) != null ? '<span class="now" style="left:' + pos.toFixed(0) + '%;background:' + colorsR[key] + '"></span>' : '') + '</span><span class="lh"><span>' + short(lo) + '</span><span>' + short(hi) + '</span></span>';
+      el.title = '24 h low ' + f1(lo) + '°, high ' + f1(hi) + '°';
+    };
+    HEAT.forEach(({ key }) => range(key, ser[key], now[key]));
+    range('out', so, out ? out.now : null);
+    $('heat-out-label').textContent = 'Outside';
 
+    const known = HEAT.filter(({ key }) => chg[key] != null);
     const badge = $('heat-badge');
-    if (cg == null || cf == null) { badge.textContent = 'Learning'; badge.className = 'pill'; }
-    else if (Math.max(-cg, -cf) < 0.6) { badge.textContent = 'Holds well'; badge.className = 'pill good'; }
-    else { badge.textContent = (cf < cg ? '1st floor' : 'Ground floor') + ' cools faster'; badge.className = 'pill warn'; }
+    if (!known.length) { badge.textContent = 'Learning'; badge.className = 'pill'; }
+    else {
+      const sorted = known.slice().sort((a, b) => chg[a.key] - chg[b.key]);
+      const worst = sorted[0];
+      const clear = sorted.length < 2 || chg[sorted[1].key] - chg[worst.key] >= 0.3;
+      const firstOnly = !clear && sorted.length >= 2 && ['south', 'north'].includes(worst.key) && ['south', 'north'].includes(sorted[1].key) && (sorted.length < 3 || chg[sorted[2].key] - chg[sorted[1].key] >= 0.3);
+      if (-chg[worst.key] < 0.6) { badge.textContent = 'Holds well'; badge.className = 'pill good'; }
+      else { badge.textContent = clear ? (worst.short || worst.label) + ' cooling' : firstOnly ? '1st floor cooling' : 'Cooling'; badge.className = 'pill warn'; }
+    }
 
     const parts = [];
-    if (g != null && f != null) {
-      const d = g - f;
-      parts.push(Math.abs(d) < 0.3 ? 'Both floors are about the same temperature.' : (d > 0 ? 'Upstairs is ' : 'Upstairs is ') + '<b>' + Math.abs(d).toFixed(1) + '°</b> ' + (d > 0 ? 'cooler' : 'warmer') + ' than downstairs.');
-    } else if (g == null && f == null) {
-      parts.push('No floor sensors found. Check the sensor names in config.js.');
+    const ups = ['south', 'north'].map((k) => now[k]).filter((v) => num(v) != null);
+    if (now.ground != null && ups.length) {
+      const d = now.ground - ups.reduce((a, b) => a + b, 0) / ups.length;
+      parts.push(Math.abs(d) < 0.3 ? 'Both floors about the same' : 'Upstairs <b>' + Math.abs(d).toFixed(1) + '°</b> ' + (d > 0 ? 'cooler' : 'warmer') + ' than downstairs');
+    } else if (!HEAT.some(({ key }) => now[key] != null)) {
+      parts.push('No room sensors found. Check the rooms in config.js.');
     }
-    if (cg != null && cf != null && co != null) {
+    if (now.south != null && now.north != null) {
+      const d = now.south - now.north;
+      const sn = southNorth(ser.south, ser.north);
+      let t = Math.abs(d) < 0.3 ? 'South and north rooms level now' : (d > 0 ? 'South' : 'North') + ' room <b>' + Math.abs(d).toFixed(1) + '°</b> warmer now';
+      if (sn && sn.day != null) t += ' · up to <b>' + signed(sn.day) + '</b> in the sun';
+      parts.push(t);
+    }
+    if (co != null && so.length) {
       const minOut = Math.min(...so.map((p) => p.v));
-      parts.push('Since this time yesterday it got <b>' + Math.abs(co).toFixed(1) + '°</b> ' + (co < 0 ? 'colder' : 'warmer') + ' outside (lowest ' + f1(minOut) + '°). The 1st floor changed <b>' + signed(cf) + '</b> and the ground floor <b>' + signed(cg) + '</b>.');
-    } else {
-      parts.push(state.heat.source === 'local' ? 'Building up 24 hours of history on this phone; the comparison appears tomorrow.' : 'Collecting the last 24 hours…');
+      parts.push('Outside <b>' + Math.abs(co).toFixed(1) + '°</b> ' + (co < 0 ? 'colder' : 'warmer') + ' than yesterday');
     }
-    $('heat-summary').innerHTML = parts.join(' ');
-    drawHeat(sg, sf, so);
+    if (!known.length) parts.push(state.heat.source === 'local' ? 'Building up 24 hours of history; the comparison appears tomorrow' : 'Collecting the last 24 hours…');
+    $('heat-summary').innerHTML = parts.map((p) => '<li><span>' + p + '</span></li>').join('');
+    drawHeat(ser, so);
   }
 
-  function drawHeat(sg, sf, so) {
+  function drawHeat(ser, so) {
     const el = $('heat-chart');
     const W = Math.max(240, el.clientWidth), H = 150, l = 34, r = 6;
     const now = Date.now(), t0 = now - DAY;
     const x = (t) => l + ((t - t0) / DAY) * (W - l - r);
     const fmtT = (t) => new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit' }).format(new Date(t));
-    // one small panel per scale: the two floors share a tight scale, outside gets its own
-    const panel = (series, top, h, minSpan) => {
+    // one small panel per scale: the rooms share a tight scale, outside gets its own
+    const panel = (series, top, h, minSpan, minStep = 1) => {
       const vals = series.flatMap((s) => s.list.map((p) => p.v)).filter((v) => num(v) != null);
       if (!vals.length) return '';
       let lo = Math.min(...vals), hi = Math.max(...vals);
       const pad = Math.max(0.2, (minSpan - (hi - lo)) / 2);
       lo -= pad; hi += pad;
       const y = (v) => top + (1 - (v - lo) / (hi - lo)) * h;
-      const labs = [hi, lo].map((v) => '<text x="' + (l - 6) + '" y="' + (y(v) + 4).toFixed(1) + '" text-anchor="end">' + v.toFixed(Math.abs(hi - lo) < 4 ? 1 : 0) + '°</text>').join('');
-      const box = '<line x1="' + l + '" x2="' + (W - r) + '" y1="' + top + '" y2="' + top + '" stroke="var(--line)"></line><line x1="' + l + '" x2="' + (W - r) + '" y1="' + (top + h) + '" y2="' + (top + h) + '" stroke="var(--line)"></line>';
+      const step = Math.max(minStep, hi - lo <= 3 ? 1 : hi - lo <= 8 ? 2 : 5);
+      const ticks = []; for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) ticks.push(v);
+      const labs = ticks.map((v) => '<line x1="' + l + '" x2="' + (W - r) + '" y1="' + y(v).toFixed(1) + '" y2="' + y(v).toFixed(1) + '" stroke="var(--line)" stroke-dasharray="2 3"></line><text x="' + (l - 6) + '" y="' + (y(v) + 4).toFixed(1) + '" text-anchor="end">' + String(v).replace('-', '−') + '°</text>').join('');
+      const box = '';
       const lines = series.map((s) => (s.list.length > 1 ? '<polyline fill="none" stroke="' + s.color + '" stroke-width="' + s.w + '" stroke-linejoin="round"' + (s.dash ? ' stroke-dasharray="4 4"' : '') + ' points="' + s.list.filter((p) => p.t >= t0).map((p) => x(p.t).toFixed(1) + ',' + y(p.v).toFixed(1)).join(' ') + '"></polyline>' : '')).join('');
-      return box + labs + lines;
+      const marks = series.filter((s) => s.peak && s.list.length > 3).map((s) => {
+        const p = s.list.filter((q) => q.t >= t0).reduce((a, b) => (b.v > a.v ? b : a));
+        const px = x(p.t), py = y(p.v);
+        return '<circle cx="' + px.toFixed(1) + '" cy="' + py.toFixed(1) + '" r="3.5" fill="' + s.color + '" stroke="var(--card)" stroke-width="1.5"></circle><text x="' + px.toFixed(1) + '" y="' + (py - 7).toFixed(1) + '" text-anchor="middle" style="fill:' + s.color + ';font-weight:600">' + p.v.toFixed(1) + '°</text>';
+      }).join('');
+      return box + labs + lines + marks;
     };
-    const inside = panel([{ list: sf, color: 'var(--first)', w: 2.5 }, { list: sg, color: 'var(--ground)', w: 2.5 }], 6, 62, 2);
-    const outside = panel([{ list: so, color: 'var(--out)', w: 2, dash: true }], 86, 40, 4);
-    const hours = [24, 18, 12, 6, 0].map((h) => { const t = now - h * 3600000; return '<text x="' + x(t).toFixed(1) + '" y="' + (H - 4) + '" text-anchor="' + (h === 24 ? 'start' : h === 0 ? 'end' : 'middle') + '">' + (h === 0 ? 'now' : fmtT(t)) + '</text>'; }).join('');
+    const colors = { ground: 'var(--ground)', south: 'var(--first)', north: 'var(--north)' };
+    const inside = panel(HEAT.map(({ key }) => ({ list: ser[key] || [], color: colors[key] || 'var(--muted)', w: 2.5, peak: key === 'south' })), 16, 54, 2);
+    const outside = panel([{ list: so, color: 'var(--out)', w: 2, dash: true }], 86, 40, 4, 5);
+    // ticks on whole clock hours (00, 06, 12, 18) plus "Now"
+    const hourOf = (t) => +new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', hourCycle: 'h23' }).format(new Date(t));
+    const ticks = [];
+    for (let t = Math.ceil(t0 / 3600000) * 3600000; t < now - 2.5 * 3600000; t += 3600000) if (hourOf(t) % 6 === 0 && t > t0 + 1.5 * 3600000) ticks.push(t);
+    const hours = ticks.map((t) => '<text x="' + x(t).toFixed(1) + '" y="' + (H - 4) + '" text-anchor="middle">' + String(hourOf(t)).padStart(2, '0') + ':00</text>').join('') +
+      '<text x="' + (W - r) + '" y="' + (H - 4) + '" text-anchor="end">Now</text>';
     el.innerHTML = inside || outside ? '<svg viewBox="0 0 ' + W + ' ' + H + '" aria-hidden="true">' + inside + outside + hours + '</svg>' : '';
   }
 
@@ -712,6 +792,7 @@
     if (!store.get('oauth')) { showLogin(); return; }
     showMain();
     state.tariffs = store.get('tariffs');
+    state.forecast = getS('forecast');
     state.yesterday = store.get('yesterday');
     const cached = store.get('prices');
     if (cached && cached.day === dayKey(0)) { state.prices = cached.list.map(withAllIn); state.pricesDay = cached.day; }
@@ -729,8 +810,10 @@
     render();
     loadHeat();
     loadEloverblik().then(() => loadPrices()).then(render).catch(() => {});
+    loadForecast().then(render).catch(() => {});
     setInterval(loadHeat, 10 * 60000);
     setInterval(() => loadEloverblik(), 60 * 60000);
+    setInterval(() => loadForecast().then(render).catch(() => {}), 60 * 60000);
     setInterval(() => tick(false), (C.refreshSeconds || 15) * 1000);
     setInterval(() => tick(true), 10 * 60000);
   }

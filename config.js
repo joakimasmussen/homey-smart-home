@@ -26,11 +26,13 @@ window.APP_CONFIG = {
   // Outside temperature (Open-Meteo) for the "How the house holds heat" tile.
   location: { name: 'Herning', lat: 56.14, lon: 8.97 },
 
-  // Which temperature sensors belong to which floor, by device name in Homey.
-  floors: {
-    ground: { label: 'Ground floor', devices: ['Temp/fugtsensor', 'Fugt/Temp Køkken'] },
-    first: { label: '1st floor', devices: ['TemperatureHumiditySensor', 'Fugt/Temp 1.Sal'] },
-  },
+  // Lines on the "How the house holds heat" tile. Sensors are found by the room (zone) they are in
+  // in Homey, so they can be renamed freely; more sensors in the same room are averaged.
+  heat: [
+    { key: 'ground', label: 'Ground floor', short: 'Ground', zones: ['Køkken'] },
+    { key: 'south', label: '1st floor south', short: '1st S', zones: ['Soveværelse (1. Sal)'] },
+    { key: 'north', label: '1st floor north', short: '1st N', zones: ['Stue (1. Sal)'] },
+  ],
 
   refreshSeconds: 15,
 };

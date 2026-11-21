@@ -79,21 +79,17 @@
 
       <article class="card heat-card" id="heat-card">
         <div class="row-between">
-          <h2 class="h2">How the house holds heat</h2>
+          <div><h2 class="h2">Holding heat</h2><span class="muted tiny-label">Last 24 hours</span></div>
           <span id="heat-badge" class="pill">—</span>
         </div>
         <div class="heat-stats">
-          <div class="heat-stat"><span class="muted tiny-label">Ground floor</span><span id="heat-ground" class="heat-num">—</span><span id="heat-ground-d" class="muted tiny-label">—</span></div>
-          <div class="heat-stat"><span class="muted tiny-label">1st floor</span><span id="heat-first" class="heat-num">—</span><span id="heat-first-d" class="muted tiny-label">—</span></div>
-          <div class="heat-stat"><span class="muted tiny-label">Outside</span><span id="heat-out" class="heat-num">—</span><span id="heat-out-d" class="muted tiny-label">—</span></div>
+          <div class="heat-stat"><span class="heat-key"><i class="dot dot-ground"></i>Ground</span><span id="heat-ground" class="heat-num">—</span><span id="heat-ground-r" class="heat-range"></span></div>
+          <div class="heat-stat"><span class="heat-key"><i class="dot dot-south"></i>1st S</span><span id="heat-south" class="heat-num">—</span><span id="heat-south-r" class="heat-range"></span></div>
+          <div class="heat-stat"><span class="heat-key"><i class="dot dot-north"></i>1st N</span><span id="heat-north" class="heat-num">—</span><span id="heat-north-r" class="heat-range"></span></div>
+          <div class="heat-stat"><span class="heat-key"><i class="dot dot-out"></i><span id="heat-out-label">Outside</span></span><span id="heat-out" class="heat-num">—</span><span id="heat-out-r" class="heat-range"></span></div>
         </div>
-        <div id="heat-chart" class="heat-chart" role="img" aria-label="Last 24 hours of ground floor, 1st floor and outside temperature"></div>
-        <div class="heat-legend muted">
-          <span><i class="sw sw-ground"></i>Ground floor</span>
-          <span><i class="sw sw-first"></i>1st floor</span>
-          <span><i class="sw sw-out"></i><span id="heat-out-label">Outside</span></span>
-        </div>
-        <p id="heat-summary" class="heat-summary">Collecting the last 24 hours…</p>
+        <div id="heat-chart" class="heat-chart" role="img" aria-label="Last 24 hours of ground floor, 1st floor south, 1st floor north and outside temperature"></div>
+        <ul id="heat-summary" class="heat-summary"><li>Collecting the last 24 hours…</li></ul>
         <div class="heat-loss row-between">
           <div><div class="strong small">Heat loss</div><div class="muted tiny">Appears when the heat pump's PowerTag is moved</div></div>
           <span class="heat-loss-val">— W/°C</span>
