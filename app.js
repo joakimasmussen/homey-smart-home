@@ -699,7 +699,8 @@
     // ticks on whole clock hours (00, 06, 12, 18) plus "Now"
     const hourOf = (t) => +new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', hourCycle: 'h23' }).format(new Date(t));
     const ticks = [];
-    for (let t = Math.ceil(t0 / 3600000) * 3600000; t < now - 4.5 * 3600000; t += 3600000) if (hourOf(t) % 6 === 0 && t > t0 + 1.5 * 3600000) ticks.push(t);
+    // keep a clock label only if it doesn't touch "Now" (right-aligned) or the left edge, measured in pixels
+    for (let t = Math.ceil(t0 / 3600000) * 3600000; t < now; t += 3600000) if (hourOf(t) % 6 === 0 && x(t) - l > 18 && (W - r) - x(t) > 38) ticks.push(t);
     const hours = ticks.map((t) => '<text x="' + x(t).toFixed(1) + '" y="' + (H - 4) + '" text-anchor="middle">' + String(hourOf(t)).padStart(2, '0') + ':00</text>').join('') +
       '<text x="' + (W - r) + '" y="' + (H - 4) + '" text-anchor="end">Now</text>';
     el.innerHTML = inside || outside ? '<svg viewBox="0 0 ' + W + ' ' + H + '" aria-hidden="true">' + inside + outside + hours + '</svg>' : '';
