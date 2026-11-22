@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=20261122e">
+<link rel="stylesheet" href="app.css?v=20261122f">
 </head>
 <body>
 <div id="app" class="app">
@@ -150,6 +150,12 @@
   </main>
 
   <div id="sheet-backdrop" class="sheet-backdrop" hidden></div>
+  <div id="dev-sheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="dev-title" hidden>
+    <div><h2 id="dev-title" class="h2">Device</h2><span id="dev-zone" class="muted tiny-label"></span></div>
+    <div id="dev-body" class="dev-body"></div>
+    <p id="dev-error" class="error" hidden></p>
+    <button id="dev-close" class="btn-primary" type="button">Done</button>
+  </div>
   <div id="sheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" hidden>
     <h2 id="sheet-title" class="h2">Settings</h2>
     <label class="field" for="theme-select">Appearance
@@ -170,8 +176,8 @@
     <button id="sheet-close" class="btn-primary" type="button">Done</button>
   </div>
 </div>
-<script src="config.js?v=20261122e"></script>
-<script src="demo.js?v=20261122e"></script>
-<script src="app.js?v=20261122e"></script>
+<script src="config.js?v=20261122f"></script>
+<script src="demo.js?v=20261122f"></script>
+<script src="app.js?v=20261122f"></script>
 </body>
 </html>

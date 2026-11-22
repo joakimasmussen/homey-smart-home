@@ -95,19 +95,20 @@
     throw lastErr || new Error('could not reach your Homey');
   }
 
-  async function homey(path, retried) {
+  async function homey(path, retried, opts) {
     const s = state.homey;
     try {
-      const r = await withTimeout((signal) => fetch(s.base + path, { signal, headers: { Authorization: 'Bearer ' + s.session } }), 15000);
-      if (r.status === 401 && !retried) { await connectHomey(true); return homey(path, true); }
+      const init = opts ? { method: opts.method, headers: { Authorization: 'Bearer ' + s.session, 'Content-Type': 'application/json' }, body: JSON.stringify(opts.body) } : { headers: { Authorization: 'Bearer ' + s.session } };
+      const r = await withTimeout((signal) => fetch(s.base + path, { signal, ...init }), 15000);
+      if (r.status === 401 && !retried) { await connectHomey(true); return homey(path, true, opts); }
       if (!r.ok) throw new Error('Homey ' + r.status);
       return r.json();
     } catch (e) {
       // Left home: the local address stops working, so switch to the remote one.
-      if (!retried && s.remote && s.base !== s.remote) { s.base = s.remote; store.set('homey', s); return homey(path, true); }
+      if (!retried && s.remote && s.base !== s.remote) { s.base = s.remote; store.set('homey', s); return homey(path, true, opts); }
       if (!retried && s.local && s.base !== s.local) {
         const back = { ...s, base: s.local };
-        try { state.homey = back; const res = await homey(path, true); store.set('homey', back); return res; } catch (e2) { state.homey = s; }
+        try { state.homey = back; const res = await homey(path, true, opts); store.set('homey', back); return res; } catch (e2) { state.homey = s; }
       }
       throw e;
     }
@@ -263,12 +264,78 @@
   function tileHTML(d, showZone) {
     const t = tileInfo(d);
     const cls = 'tile' + (t.on ? ' on' : '') + (t.alert ? ' alert' : '');
-    return '<article class="' + cls + '">' +
+    return '<article class="' + cls + '" data-id="' + esc(d.id) + '" role="button" tabindex="0">' +
       '<div class="tile-top"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + ICONS[iconFor(d)] + '</svg>' +
       '<span class="' + (t.on ? '' : 'muted') + '">' + esc(t.sub) + '</span></div>' +
       '<div><div class="tile-name">' + esc(d.name) + '</div>' +
       '<div class="tile-zone muted">' + esc(t.main) + (showZone && zoneName(d.zone) ? ' · ' + esc(zoneName(d.zone)) : '') + '</div></div>' +
       '</article>';
+  }
+
+  // ---------- device control ----------
+  const canSet = (d, cap) => d.capabilitiesObj && d.capabilitiesObj[cap] && d.capabilitiesObj[cap].setable !== false;
+  async function setCap(d, cap, value) {
+    if (DEMO) { d.capabilitiesObj[cap].value = value; return; }
+    await homey('/api/manager/devices/device/' + d.id + '/capability/' + cap, false, { method: 'PUT', body: { value } });
+    d.capabilitiesObj[cap].value = value;
+  }
+  // Tap: a plain on/off device just toggles; anything else opens a sheet with its controls and readings.
+  async function onTile(id) {
+    const d = state.devices[id] || deviceList().find((x) => x.id === id);
+    if (!d) return;
+    const simple = canSet(d, 'onoff') && !canSet(d, 'dim') && !canSet(d, 'windowcoverings_state') && !canSet(d, 'speaker_playing');
+    if (simple) {
+      const el = document.querySelector('.tile[data-id="' + CSS.escape(id) + '"]');
+      if (el) el.classList.add('busy');
+      try { await setCap(d, 'onoff', !d.capabilitiesObj.onoff.value); } catch (e) { setStatus('Could not switch ' + d.name + '.'); }
+      renderZoneGroups();
+      return;
+    }
+    openDevice(d);
+  }
+  const CAP_LABEL = { measure_temperature: ['Temperature', '°'], measure_humidity: ['Humidity', ' %'], measure_battery: ['Battery', ' %'], measure_power: ['Power', ' W'], meter_power: ['Energy', ' kWh'], alarm_contact: ['Contact'], alarm_motion: ['Motion'], measure_luminance: ['Light', ' lx'], volume_set: ['Volume'] };
+  function openDevice(d) {
+    state.devDevice = d.id;
+    $('dev-title').textContent = d.name;
+    $('dev-zone').textContent = zoneName(d.zone) || '';
+    $('dev-error').hidden = true;
+    const o = d.capabilitiesObj || {};
+    let h = '';
+    if (canSet(d, 'windowcoverings_state')) h += '<div class="dev-btns"><button data-act="wc" data-v="up" type="button">Up</button><button data-act="wc" data-v="idle" type="button">Stop</button><button data-act="wc" data-v="down" type="button">Down</button></div>';
+    if (canSet(d, 'windowcoverings_set')) h += '<label class="field">Position <input type="range" min="0" max="100" step="5" data-act="wcset" value="' + Math.round((o.windowcoverings_set.value || 0) * 100) + '"></label>';
+    if (canSet(d, 'speaker_playing')) h += '<button class="dev-toggle' + (o.speaker_playing.value ? ' on' : '') + '" data-act="play" type="button">' + (o.speaker_playing.value ? 'Pause' : 'Play') + '</button>';
+    if (canSet(d, 'volume_set')) h += '<label class="field">Volume <input type="range" min="0" max="100" step="2" data-act="vol" value="' + Math.round((o.volume_set.value || 0) * 100) + '"></label>';
+    if (canSet(d, 'onoff')) h += '<button class="dev-toggle' + (o.onoff.value ? ' on' : '') + '" data-act="onoff" type="button">' + (o.onoff.value ? 'On · tap to turn off' : 'Off · tap to turn on') + '</button>';
+    if (canSet(d, 'dim')) h += '<label class="field">Brightness <input type="range" min="1" max="100" step="1" data-act="dim" value="' + Math.round((o.dim.value || 0) * 100) + '"></label>';
+    const rows = Object.keys(CAP_LABEL).filter((k) => o[k] && o[k].value != null && k !== 'volume_set').map((k) => {
+      const [lab, unit] = CAP_LABEL[k]; let v = o[k].value;
+      if (k === 'alarm_contact') v = v ? 'Open' : 'Closed'; else if (k === 'alarm_motion') v = v ? 'Motion' : 'Quiet'; else v = (typeof v === 'number' ? (Math.abs(v) < 100 ? f1(v) : Math.round(v)) : v) + (unit || '');
+      return '<div class="dev-row"><span class="muted">' + lab + '</span><span>' + esc(String(v)) + '</span></div>';
+    });
+    const upd = Object.values(o).map((c) => c.lastUpdated).filter(Boolean).sort().slice(-1)[0];
+    if (upd) rows.push('<div class="dev-row"><span class="muted">Last update</span><span>' + new Intl.DateTimeFormat('en-GB', { timeZone: TZ, day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(upd)) + '</span></div>');
+    h += rows.length ? '<div>' + rows.join('') + '</div>' : '';
+    if (!h) h = '<p class="muted small">Nothing to control or show for this device.</p>';
+    $('dev-body').innerHTML = h;
+    $('dev-sheet').hidden = false; $('sheet-backdrop').hidden = false;
+  }
+  function closeDevice() { $('dev-sheet').hidden = true; if ($('sheet').hidden) $('sheet-backdrop').hidden = true; state.devDevice = null; }
+  async function devAction(el) {
+    const d = state.devices[state.devDevice] || deviceList().find((x) => x.id === state.devDevice);
+    if (!d) return;
+    const o = d.capabilitiesObj;
+    const act = el.dataset.act;
+    $('dev-error').hidden = true;
+    try {
+      if (act === 'wc') await setCap(d, 'windowcoverings_state', el.dataset.v);
+      else if (act === 'wcset') await setCap(d, 'windowcoverings_set', +el.value / 100);
+      else if (act === 'play') await setCap(d, 'speaker_playing', !o.speaker_playing.value);
+      else if (act === 'vol') await setCap(d, 'volume_set', +el.value / 100);
+      else if (act === 'onoff') await setCap(d, 'onoff', !o.onoff.value);
+      else if (act === 'dim') await setCap(d, 'dim', +el.value / 100);
+      if (['play', 'onoff'].includes(act)) openDevice(d);
+      renderZoneGroups();
+    } catch (e) { $('dev-error').textContent = 'Homey did not accept that. ' + (e.message || ''); $('dev-error').hidden = false; }
   }
 
   // ---------- render ----------
@@ -854,7 +921,12 @@
     document.querySelectorAll('.tabbtn').forEach((b) => b.addEventListener('click', () => switchTab(b.dataset.tab)));
     $('settings-btn').addEventListener('click', () => openSheet(true));
     $('sheet-close').addEventListener('click', () => openSheet(false));
-    $('sheet-backdrop').addEventListener('click', () => openSheet(false));
+    $('sheet-backdrop').addEventListener('click', () => { openSheet(false); closeDevice(); });
+    $('zone-groups').addEventListener('click', (e) => { const t = e.target.closest('.tile[data-id]'); if (t) onTile(t.dataset.id); });
+    $('zone-groups').addEventListener('keydown', (e) => { const t = e.target.closest('.tile[data-id]'); if (t && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onTile(t.dataset.id); } });
+    $('dev-close').addEventListener('click', closeDevice);
+    $('dev-body').addEventListener('click', (e) => { const b = e.target.closest('button[data-act]'); if (b) devAction(b); });
+    $('dev-body').addEventListener('change', (e) => { if (e.target.matches('input[data-act]')) devAction(e.target); });
     $('theme-select').addEventListener('change', (e) => { if (DEMO) mem.theme = e.target.value; else store.set('theme', e.target.value); applyTheme(); });
     $('elo-save').addEventListener('click', async () => {
       const v = $('elo-token').value.trim().replace(/^Bearer\s+/i, '');

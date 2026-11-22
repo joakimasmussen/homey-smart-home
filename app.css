@@ -191,3 +191,16 @@ button, select { font: inherit; color: inherit; }
 .hist-chart { position: relative; height: 150px; }
 .hist-chart svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .hist-chart text { fill: var(--muted); font-size: 11px; font-family: Inter, sans-serif; }
+
+/* Device tiles: long names wrap, tiles are tappable */
+.tile-name { overflow-wrap: anywhere; word-break: break-word; }
+.tile { cursor: pointer; text-align: left; font: inherit; color: inherit; -webkit-tap-highlight-color: transparent; transition: transform 0.08s ease; }
+.tile:active { transform: scale(0.97); }
+.tile.busy { opacity: 0.6; }
+.dev-body { display: flex; flex-direction: column; gap: 12px; }
+.dev-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.dev-row:last-child { border-bottom: none; }
+.dev-btns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.dev-btns button, .dev-toggle { height: 48px; border-radius: 16px; border: 1px solid var(--chip-line); background: var(--card-2); color: var(--ink); font-weight: 600; font-size: 15px; cursor: pointer; }
+.dev-toggle.on { background: var(--tile-on); color: var(--tile-on-ink); border-color: var(--tile-on); }
+.dev-body input[type=range] { width: 100%; accent-color: var(--tile-on); }
