@@ -815,7 +815,10 @@
     const hourOf = (t) => +new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', hourCycle: 'h23' }).format(new Date(t));
     const ticks = [];
     // keep a clock label only if it doesn't touch "Now" (right-aligned) or the left edge, measured in pixels
-    for (let t = Math.ceil(t0 / 3600000) * 3600000; t < now; t += 3600000) if (hourOf(t) % 6 === 0 && x(t) - l > 18 && (W - r) - x(t) > 38) ticks.push(t);
+    // first label: the earliest 3-hour mark (00, 03, 06 …) that fits at the left edge, then every 6 hours
+    let t1 = Math.ceil(t0 / 3600000) * 3600000;
+    while (hourOf(t1) % 3 !== 0 || x(t1) < 18) t1 += 3600000;
+    for (let t = t1; t < now; t += 6 * 3600000) if ((W - r) - x(t) > 38) ticks.push(t);
     const hours = ticks.map((t) => '<text x="' + x(t).toFixed(1) + '" y="' + (H - 4) + '" text-anchor="middle">' + String(hourOf(t)).padStart(2, '0') + ':00</text>').join('') +
       '<text x="' + (W - r) + '" y="' + (H - 4) + '" text-anchor="end">Now</text>';
     el.innerHTML = inside || outside ? '<svg viewBox="0 0 ' + W + ' ' + H + '" aria-hidden="true">' + inside + outside + hours + '</svg>' : '';
