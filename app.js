@@ -304,7 +304,7 @@
     if (canSet(d, 'windowcoverings_state')) h += '<div class="dev-btns"><button data-act="wc" data-v="up" type="button">Up</button><button data-act="wc" data-v="idle" type="button">Stop</button><button data-act="wc" data-v="down" type="button">Down</button></div>';
     if (canSet(d, 'windowcoverings_set')) h += '<label class="field">Position <input type="range" min="0" max="100" step="5" data-act="wcset" value="' + Math.round((o.windowcoverings_set.value || 0) * 100) + '"></label>';
     if (canSet(d, 'speaker_playing')) h += '<button class="dev-toggle' + (o.speaker_playing.value ? ' on' : '') + '" data-act="play" type="button">' + (o.speaker_playing.value ? 'Pause' : 'Play') + '</button>';
-    if (canSet(d, 'volume_set')) h += '<label class="field">Volume <input type="range" min="0" max="100" step="2" data-act="vol" value="' + Math.round((o.volume_set.value || 0) * 100) + '"></label>';
+    if (canSet(d, 'volume_set')) { const vol = Math.round((o.volume_set.value || 0) * 100); h += '<div class="field">Volume <span id="vol-val">' + vol + ' %</span><div class="vol-row"><button class="vol-btn" data-act="voldown" type="button" aria-label="Volume down">−</button><input type="range" min="0" max="100" step="2" data-act="vol" value="' + vol + '" aria-label="Volume"><button class="vol-btn" data-act="volup" type="button" aria-label="Volume up">+</button></div></div>'; }
     if (canSet(d, 'onoff')) h += '<button class="dev-toggle' + (o.onoff.value ? ' on' : '') + '" data-act="onoff" type="button">' + (o.onoff.value ? 'On · tap to turn off' : 'Off · tap to turn on') + '</button>';
     if (canSet(d, 'dim')) h += '<label class="field">Brightness <input type="range" min="1" max="100" step="1" data-act="dim" value="' + Math.round((o.dim.value || 0) * 100) + '"></label>';
     const rows = Object.keys(CAP_LABEL).filter((k) => o[k] && o[k].value != null && k !== 'volume_set').map((k) => {
@@ -331,6 +331,12 @@
       else if (act === 'wcset') await setCap(d, 'windowcoverings_set', +el.value / 100);
       else if (act === 'play') await setCap(d, 'speaker_playing', !o.speaker_playing.value);
       else if (act === 'vol') await setCap(d, 'volume_set', +el.value / 100);
+      else if (act === 'volup' || act === 'voldown') {
+        const v = Math.min(1, Math.max(0, Math.round(((o.volume_set.value || 0) + (act === 'volup' ? 0.05 : -0.05)) * 100) / 100));
+        await setCap(d, 'volume_set', v);
+        const r = $('dev-body').querySelector('input[data-act="vol"]'); if (r) r.value = Math.round(v * 100);
+      }
+      if (['vol', 'volup', 'voldown'].includes(act) && $('vol-val')) $('vol-val').textContent = Math.round((o.volume_set.value || 0) * 100) + ' %';
       else if (act === 'onoff') await setCap(d, 'onoff', !o.onoff.value);
       else if (act === 'dim') await setCap(d, 'dim', +el.value / 100);
       if (['play', 'onoff'].includes(act)) openDevice(d);
