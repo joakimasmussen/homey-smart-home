@@ -336,7 +336,7 @@
       $('house-power-note').textContent = 'From ' + power.length + ' meter' + (power.length > 1 ? 's' : '');
     } else {
       $('house-power').textContent = '—';
-      $('house-power-note').textContent = 'Add PowerTags to see this';
+      $('house-power-note').textContent = 'Appears when the energy meters are installed';
     }
     renderYesterday();
   }
@@ -683,7 +683,11 @@
       const box = '';
       const lines = series.map((s) => (s.list.length > 1 ? '<polyline fill="none" stroke="' + s.color + '" stroke-width="' + s.w + '" stroke-linejoin="round"' + (s.dash ? ' stroke-dasharray="4 4"' : '') + ' points="' + s.list.filter((p) => p.t >= t0).map((p) => x(p.t).toFixed(1) + ',' + y(p.v).toFixed(1)).join(' ') + '"></polyline>' : '')).join('');
       const marks = series.filter((s) => s.peak && s.list.length > 3).map((s) => {
-        const p = s.list.filter((q) => q.t >= t0).reduce((a, b) => (b.v > a.v ? b : a));
+        // the sun's peak: look only in daylight (09-16), so hand tests or evening heat don't count
+        const sunHour = (t) => +new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', hourCycle: 'h23' }).format(new Date(t));
+        const day = s.list.filter((q) => q.t >= t0 && sunHour(q.t) >= 9 && sunHour(q.t) < 16);
+        if (day.length < 2) return '';
+        const p = day.reduce((a, b) => (b.v > a.v ? b : a));
         const px = x(p.t), py = y(p.v);
         return '<circle cx="' + px.toFixed(1) + '" cy="' + py.toFixed(1) + '" r="3.5" fill="' + s.color + '" stroke="var(--card)" stroke-width="1.5"></circle><text x="' + px.toFixed(1) + '" y="' + (py - 7).toFixed(1) + '" text-anchor="middle" style="fill:' + s.color + ';font-weight:600">' + p.v.toFixed(1) + '°</text>';
       }).join('');
@@ -695,7 +699,7 @@
     // ticks on whole clock hours (00, 06, 12, 18) plus "Now"
     const hourOf = (t) => +new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', hourCycle: 'h23' }).format(new Date(t));
     const ticks = [];
-    for (let t = Math.ceil(t0 / 3600000) * 3600000; t < now - 2.5 * 3600000; t += 3600000) if (hourOf(t) % 6 === 0 && t > t0 + 1.5 * 3600000) ticks.push(t);
+    for (let t = Math.ceil(t0 / 3600000) * 3600000; t < now - 4.5 * 3600000; t += 3600000) if (hourOf(t) % 6 === 0 && t > t0 + 1.5 * 3600000) ticks.push(t);
     const hours = ticks.map((t) => '<text x="' + x(t).toFixed(1) + '" y="' + (H - 4) + '" text-anchor="middle">' + String(hourOf(t)).padStart(2, '0') + ':00</text>').join('') +
       '<text x="' + (W - r) + '" y="' + (H - 4) + '" text-anchor="end">Now</text>';
     el.innerHTML = inside || outside ? '<svg viewBox="0 0 ' + W + ' ' + H + '" aria-hidden="true">' + inside + outside + hours + '</svg>' : '';
