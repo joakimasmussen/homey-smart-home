@@ -31,6 +31,11 @@ window.HOME_DEMO_DATA = function (state, day) {
   state.heat.hist = { ground: mk(g), south: mk(sth), north: mk(n) };
   state.heat.outside = { now: -0.4, series: mk(o) };
   state.heat.source = 'insights';
+  // example history: 31 days and 24 months
+  var hd = {}, hm = {};
+  for (var i = 31; i >= 2; i--) { var dt = new Date(now - i * 86400000); var k = dt.toISOString().slice(0, 10); var we = dt.getDay() === 0 || dt.getDay() === 6; var v = 28 + 8 * Math.sin(i / 5) + (we ? 6 : 0); hd[k] = { kwh: v, cost: v * 2.4 }; }
+  for (var m = 23; m >= 0; m--) { var dm = new Date(); dm.setDate(15); dm.setMonth(dm.getMonth() - m); var mk = dm.toISOString().slice(0, 7); var season = Math.cos((dm.getMonth() + 0.5) / 12 * 2 * Math.PI); hm[mk] = m === 0 ? 640 : 900 + 450 * season; }
+  state.history = { at: Date.now(), days: hd, months: hm };
   // example of yesterday's consumption from Eloverblik
   state.yesterday = { day: 'yesterday', back: 1, kwh: 41.2, cost: 128.4, avg: 3.12, priced: true };
 };

@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=20261122c">
+<link rel="stylesheet" href="app.css?v=20261122d">
 </head>
 <body>
 <div id="app" class="app">
@@ -121,8 +121,19 @@
     <!-- HISTORY -->
     <section id="tab-history" class="tab" hidden>
       <article class="card">
-        <h2 class="h2">History</h2>
-        <p class="muted">Graphs from Homey Insights come in the next version: temperature, humidity, power and cost over the day, week and month.</p>
+        <div class="row-between"><div><h2 class="h2">Last 30 days</h2><span class="muted tiny-label">Electricity from your meter, priced hour by hour</span></div></div>
+        <div class="hist-stats">
+          <div><span class="muted tiny-label">Used</span><span id="h30-kwh" class="heat-num">—</span></div>
+          <div><span class="muted tiny-label">Cost</span><span id="h30-kr" class="heat-num">—</span></div>
+          <div><span class="muted tiny-label">Per day</span><span id="h30-avg" class="heat-num">—</span></div>
+        </div>
+        <div id="h30-chart" class="hist-chart" role="img" aria-label="Electricity used per day, last 30 days"></div>
+        <p id="h30-note" class="tiny muted"></p>
+      </article>
+      <article class="card">
+        <div class="row-between"><div><h2 class="h2">Month by month</h2><span class="muted tiny-label">kWh, last 24 months</span></div></div>
+        <div id="hm-chart" class="hist-chart" role="img" aria-label="Electricity used per month, last 24 months"></div>
+        <ul id="hm-summary" class="heat-summary"></ul>
       </article>
     </section>
 
@@ -159,8 +170,8 @@
     <button id="sheet-close" class="btn-primary" type="button">Done</button>
   </div>
 </div>
-<script src="config.js?v=20261122c"></script>
-<script src="demo.js?v=20261122c"></script>
-<script src="app.js?v=20261122c"></script>
+<script src="config.js?v=20261122d"></script>
+<script src="demo.js?v=20261122d"></script>
+<script src="app.js?v=20261122d"></script>
 </body>
 </html>

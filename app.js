@@ -279,6 +279,7 @@
     renderHeat();
     if (state.tab === 'devices') renderZoneGroups();
     if (state.tab === 'energy') renderEnergy();
+    if (state.tab === 'history') renderHistory();
   }
 
   function renderPrices() {
@@ -478,6 +479,7 @@
       if (force || !t || Date.now() - t.at > 24 * 3600000) await loadTariffs();
       const y = state.yesterday;
       if (force || !y || y.none || y.back !== 1 || y.day !== dayKey(-1)) await loadYesterday();
+      await loadHistory(force);
     } catch (e) { state.eloError = 'Eloverblik: ' + e.message; }
     render();
   }
@@ -492,6 +494,119 @@
     if (y.back !== 1) $('yday-label').textContent = new Intl.DateTimeFormat('en-GB', { weekday: 'long', timeZone: TZ }).format(new Date(y.day + 'T12:00:00'));
     $('yday-cost').textContent = y.priced ? Math.round(y.cost) : '—';
     $('yday-note').textContent = f1(y.kwh) + ' kWh' + (y.priced ? ' · ' + f2(y.avg) + ' kr/kWh' : '');
+  }
+
+  // ---------- History: consumption from Eloverblik ----------
+  function parseSeries(j) {
+    const doc = j.result && j.result[0] && j.result[0].MyEnergyData_MarketDocument;
+    const pts = [];
+    ((doc && doc.TimeSeries) || []).forEach((ts) => (ts.Period || []).forEach((per) => {
+      const start = new Date(per.timeInterval.start).getTime();
+      const step = per.resolution === 'PT15M' ? 15 * 60000 : per.resolution === 'PT1H' ? 3600000 : 0;
+      (per.Point || []).forEach((pt) => { const q = +pt['out_Quantity.quantity']; if (num(q) != null) pts.push({ t: start + (+pt.position - 1) * step, step, kwh: q }); });
+    }));
+    return pts;
+  }
+  async function loadHistory(force) {
+    if (DEMO || !store.get('eloRefresh')) return;
+    const h = store.get('history') || { days: {}, months: {} };
+    if (!force && h.at && Date.now() - h.at < 6 * 3600000) { state.history = h; return; }
+    const meter = await eloMeter();
+    const body = { meteringPoints: { meteringPoint: [meter.id] } };
+    // last 31 days by the hour, priced with each day's spot prices and your tariffs
+    const hours = parseSeries(await elo('/meterdata/gettimeseries/' + dayKey(-31) + '/' + dayKey(0) + '/Hour', body));
+    const byDay = {};
+    hours.forEach((p) => { const k = keyDK(p.t).slice(0, 10); (byDay[k] = byDay[k] || []).push(p); });
+    for (const [day, pts] of Object.entries(byDay)) {
+      const kwh = pts.reduce((a, p) => a + p.kwh, 0);
+      const old = h.days[day];
+      if (old && old.cost != null && Math.abs(old.kwh - kwh) < 0.01) continue;
+      let cost = null;
+      try {
+        const prices = new Map((await fromElprisenLigeNu(day)).map((p) => [p.t, withAllIn(p).total]));
+        if (prices.size) {
+          cost = 0;
+          for (const p of pts) {
+            const qs = []; for (let m = 0; m < (p.step || 3600000); m += 15 * 60000) { const pr = prices.get(keyDK(p.t + m)); if (pr != null) qs.push(pr); }
+            if (qs.length) cost += p.kwh * (qs.reduce((a, b) => a + b, 0) / qs.length);
+          }
+        }
+      } catch (e) { /* price for that day not available: kWh only */ }
+      h.days[day] = { kwh, cost };
+    }
+    // 24 months, summed per calendar month
+    const first = new Date(); first.setMonth(first.getMonth() - 23, 1);
+    const fromM = first.getFullYear() + '-' + String(first.getMonth() + 1).padStart(2, '0') + '-01';
+    const days = parseSeries(await elo('/meterdata/gettimeseries/' + fromM + '/' + dayKey(0) + '/Day', body));
+    const months = {};
+    days.forEach((p) => { const k = keyDK(p.t + 12 * 3600000).slice(0, 7); months[k] = (months[k] || 0) + p.kwh; });
+    h.months = months;
+    Object.keys(h.days).filter((d) => d < dayKey(-40)).forEach((d) => delete h.days[d]);
+    h.at = Date.now();
+    store.set('history', h);
+    state.history = h;
+  }
+
+  function barChart(el, items, opts) {
+    const W = Math.max(240, el.clientWidth), H = 150, l = 30, r = 4, top = 8, bottom = 22;
+    if (!items.length) { el.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '"><text x="' + W / 2 + '" y="' + H / 2 + '" text-anchor="middle">' + (opts.empty || 'No data yet') + '</text></svg>'; return; }
+    const max = Math.max(1, ...items.map((x) => x.v)) * 1.08;
+    const step = max <= 20 ? 5 : max <= 60 ? 10 : max <= 300 ? 50 : max <= 1200 ? 200 : 500;
+    const y = (v) => top + (1 - v / max) * (H - top - bottom);
+    const bw = (W - l - r) / items.length;
+    let g = '';
+    for (let v = 0; v <= max; v += step) g += '<line x1="' + l + '" x2="' + (W - r) + '" y1="' + y(v).toFixed(1) + '" y2="' + y(v).toFixed(1) + '" stroke="var(--line)"' + (v ? ' stroke-dasharray="2 3"' : '') + '></line><text x="' + (l - 6) + '" y="' + (y(v) + 4).toFixed(1) + '" text-anchor="end">' + v + '</text>';
+    const bars = items.map((x, i) => '<rect x="' + (l + i * bw + bw * 0.15).toFixed(1) + '" y="' + y(x.v).toFixed(1) + '" width="' + (bw * 0.7).toFixed(1) + '" height="' + Math.max(0, y(0) - y(x.v)).toFixed(1) + '" rx="2" fill="' + (x.color || 'var(--ground)') + '"' + (x.faint ? ' opacity="0.45"' : '') + '><title>' + x.title + '</title></rect>').join('');
+    const labs = items.map((x, i) => (x.label ? '<text x="' + (i === items.length - 1 && opts.endLabel ? W - r : l + i * bw + bw / 2).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="' + (i === items.length - 1 && opts.endLabel ? 'end' : 'middle') + '">' + x.label + '</text>' : '')).join('');
+    const avg = opts.avg != null ? '<line x1="' + l + '" x2="' + (W - r) + '" y1="' + y(opts.avg).toFixed(1) + '" y2="' + y(opts.avg).toFixed(1) + '" stroke="var(--ink)" stroke-width="1.2" stroke-dasharray="5 4" opacity="0.6"></line>' : '';
+    el.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" aria-hidden="true">' + g + bars + avg + labs + '</svg>';
+  }
+
+  function renderHistory() {
+    const h = state.history;
+    if (!h) {
+      const msg = DEMO ? 'Loading…' : store.get('eloRefresh') ? 'Loading from Eloverblik…' : 'Add your Eloverblik token in Settings';
+      ['h30-kwh', 'h30-kr', 'h30-avg'].forEach((id) => { $(id).textContent = '—'; });
+      $('h30-note').textContent = msg; $('hm-summary').innerHTML = '';
+      barChart($('h30-chart'), [], { empty: msg }); barChart($('hm-chart'), [], { empty: msg });
+      return;
+    }
+    const keys = Object.keys(h.days).sort().slice(-30);
+    const ds = keys.map((k) => ({ k, ...h.days[k] }));
+    const kwh = ds.reduce((a, d) => a + d.kwh, 0);
+    const priced = ds.filter((d) => d.cost != null);
+    const cost = priced.reduce((a, d) => a + d.cost, 0);
+    $('h30-kwh').textContent = ds.length ? Math.round(kwh) + ' kWh' : '—';
+    $('h30-kr').textContent = priced.length ? Math.round(cost).toLocaleString('da-DK') + ' kr' : '—';
+    $('h30-avg').textContent = ds.length ? f1(kwh / ds.length) + ' kWh' : '—';
+    const wd = new Intl.DateTimeFormat('en-GB', { weekday: 'short', timeZone: TZ });
+    const dm = (k) => +k.slice(8, 10) + '/' + +k.slice(5, 7);
+    barChart($('h30-chart'), ds.map((d, i) => {
+      const date = new Date(d.k + 'T12:00:00');
+      const weekend = [0, 6].includes(date.getDay());
+      return { v: d.kwh, color: weekend ? 'var(--first)' : 'var(--ground)', label: (ds.length - 1 - i) % 7 === 0 ? dm(d.k) : '', title: wd.format(date) + ' ' + dm(d.k) + ': ' + f1(d.kwh) + ' kWh' + (d.cost != null ? ', ' + Math.round(d.cost) + ' kr' : '') };
+    }), { avg: ds.length ? kwh / ds.length : null, endLabel: true });
+    const last = ds[ds.length - 1];
+    $('h30-note').textContent = ds.length ? 'Orange bars are weekends; the dashed line is the average. Latest day: ' + dm(last.k) + ' (Eloverblik is 1–2 days behind).' : 'No consumption data yet.';
+
+    const mk = Object.keys(h.months).sort().slice(-24);
+    const thisM = dayKey(0).slice(0, 7);
+    const mon = new Intl.DateTimeFormat('en-GB', { month: 'narrow', timeZone: 'UTC' });
+    barChart($('hm-chart'), mk.map((k) => ({ v: h.months[k], faint: k === thisM, color: 'var(--ground)', label: mon.format(new Date(k + '-15T12:00:00Z')), title: new Intl.DateTimeFormat('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(k + '-15T12:00:00Z')) + ': ' + Math.round(h.months[k]) + ' kWh' })), {});
+    const sum = [];
+    const yr = (y) => mk.filter((k) => k.startsWith(y)).reduce((a, k) => a + h.months[k], 0);
+    const lastFull = mk.filter((k) => k < thisM).slice(-1)[0];
+    if (lastFull) {
+      const ly = (+lastFull.slice(0, 4) - 1) + lastFull.slice(4);
+      const name = new Intl.DateTimeFormat('en-GB', { month: 'long', timeZone: 'UTC' }).format(new Date(lastFull + '-15T12:00:00Z'));
+      let t = name + ': <b>' + Math.round(h.months[lastFull]) + ' kWh</b>';
+      if (h.months[ly]) { const d = (h.months[lastFull] / h.months[ly] - 1) * 100; t += ' · ' + (d >= 0 ? '+' : '−') + Math.abs(d).toFixed(0) + ' % vs last year'; }
+      sum.push(t);
+    }
+    const y12 = mk.filter((k) => k < thisM).slice(-12);
+    if (y12.length === 12) sum.push('Last 12 months: <b>' + Math.round(y12.reduce((a, k) => a + h.months[k], 0)).toLocaleString('da-DK') + ' kWh</b>');
+    if (h.months[thisM]) sum.push('This month so far: ' + Math.round(h.months[thisM]) + ' kWh (pale bar)');
+    $('hm-summary').innerHTML = sum.map((p) => '<li><span>' + p + '</span></li>').join('');
   }
 
   // ---------- How the house holds heat ----------
