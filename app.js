@@ -139,7 +139,8 @@
   }
   async function fromElprisenLigeNu(day) {
     const url = 'https://www.elprisenligenu.dk/api/v1/prices/' + day.slice(0, 4) + '/' + day.slice(5, 7) + '-' + day.slice(8, 10) + '_' + C.priceArea + '.json';
-    const r = await withTimeout((signal) => fetch(url, { signal }), 15000);
+    // no-store: a 'not published yet' answer fetched before ~13:00 must not be reused from the phone's cache
+    const r = await withTimeout((signal) => fetch(url, { signal, cache: 'no-store' }), 15000);
     if (r.status === 404) return [];
     if (!r.ok) throw new Error('prices ' + r.status);
     const out = [];
@@ -764,7 +765,7 @@
     try { if (!DEMO && state.pricesDay !== dayKey(0)) await loadPrices(); } catch (e) { /* keep old prices */ }
     if (!DEMO) {
       const hasTomorrow = state.prices.some((p) => p.t.startsWith(dayKey(1)));
-      if (!hasTomorrow && nowHour() >= 13 && (!state.lastPriceTry || Date.now() - state.lastPriceTry > 30 * 60000)) { state.lastPriceTry = Date.now(); loadPrices().then(render).catch(() => {}); }
+      if (!hasTomorrow && nowHour() >= 13 && (!state.lastPriceTry || Date.now() - state.lastPriceTry > 10 * 60000)) { state.lastPriceTry = Date.now(); loadPrices().then(render).catch(() => {}); }
     }
     busy = false;
     render();
