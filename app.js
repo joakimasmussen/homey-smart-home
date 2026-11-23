@@ -776,6 +776,15 @@
     const sum = {}, cnt = {};
     (series || []).forEach((p) => { const k = hourKey(p.t); sum[k] = (sum[k] || 0) + p.v; cnt[k] = (cnt[k] || 0) + 1; });
     const out = {}; Object.keys(sum).forEach((k) => { out[k] = sum[k] / cnt[k]; });
+    // sensors only report on change, so carry the last value into empty hours (up to 6 h)
+    const ts = (series || []).map((p) => p.t);
+    if (ts.length) {
+      let last = null, age = 0;
+      for (let t = Math.floor(Math.min(...ts) / 3600000) * 3600000; t <= Math.min(Date.now(), Math.max(...ts) + 6 * 3600000); t += 3600000) {
+        const k = hourKey(t);
+        if (out[k] != null) { last = out[k]; age = 0; } else if (last != null && ++age <= 6) out[k] = last;
+      }
+    }
     return out;
   }
   async function loadHeatHistory(force) {
@@ -783,14 +792,22 @@
     const hh = state.heatHist;
     if (!force && hh && Date.now() - hh.at < 30 * 60000) return;
     if (!state.homey) return;
+    // Homey keeps hourly values for 14 days (last31Days is 6-hourly), so fetch 14 days
+    // hourly and keep a rolling 60-day copy on this device to build up a longer history.
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem('home.heatHist') || '{}') || {}; } catch (e) { saved = {}; }
+    const cut = keyDK(Date.now() - 60 * 86400000).slice(0, 13);
+    const merge = (a, b) => { const o = Object.assign({}, a || {}, b || {}); Object.keys(o).forEach((k) => { if (k < cut || num(o[k]) == null) delete o[k]; }); return o; };
     const rooms = {};
     for (const { key } of HEAT) {
       const devs = floorDevices(key);
       if (!devs.length) continue;
-      const t = await insightSeries(devs[0].id, 'measure_temperature', 'last31Days');
-      const h = devs[0].capabilitiesObj.measure_humidity ? await insightSeries(devs[0].id, 'measure_humidity', 'last31Days') : null;
-      rooms[key] = { t: hourly1(t), h: hourly1(h) };
+      const t = await insightSeries(devs[0].id, 'measure_temperature', 'last14Days');
+      const h = devs[0].capabilitiesObj.measure_humidity ? await insightSeries(devs[0].id, 'measure_humidity', 'last14Days') : null;
+      const old = saved[key] || {};
+      rooms[key] = { t: merge(old.t, hourly1(t)), h: merge(old.h, hourly1(h)) };
     }
+    try { localStorage.setItem('home.heatHist', JSON.stringify(rooms)); } catch (e) { /* storage full or blocked */ }
     let out = {};
     try {
       const L = C.location || { lat: 56.14, lon: 8.97 };
