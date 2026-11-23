@@ -210,3 +210,13 @@ button, select { font: inherit; color: inherit; }
 .vol-row input[type=range] { flex: 1; }
 .vol-btn { width: 44px; height: 44px; flex: none; border-radius: 22px; border: 1px solid var(--chip-line); background: var(--card-2); color: var(--ink); font-size: 22px; font-weight: 600; line-height: 1; cursor: pointer; }
 .field #vol-val { float: right; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* History sub-tabs and heating charts */
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; background: var(--card-2); border-radius: 14px; }
+.seg-btn { height: 36px; border: none; border-radius: 10px; background: transparent; color: var(--muted); font-weight: 600; font-size: 14px; cursor: pointer; }
+.seg-btn[aria-selected="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+.comfort { display: flex; flex-direction: column; gap: 10px; }
+.comfort-row { display: grid; grid-template-columns: 52px 1fr 44px; gap: 10px; align-items: center; font-size: 13px; font-variant-numeric: tabular-nums; }
+.comfort-row .track { height: 10px; border-radius: 5px; background: var(--card-2); overflow: hidden; }
+.comfort-row .fill { display: block; height: 100%; border-radius: 5px; }
+.comfort-row .pct { text-align: right; }

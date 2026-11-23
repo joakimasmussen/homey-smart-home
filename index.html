@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=20261122g">
+<link rel="stylesheet" href="app.css?v=20261123a">
 </head>
 <body>
 <div id="app" class="app">
@@ -120,6 +120,11 @@
 
     <!-- HISTORY -->
     <section id="tab-history" class="tab" hidden>
+      <div class="seg" role="tablist" aria-label="History">
+        <button class="seg-btn" data-hist="el" type="button" role="tab" aria-selected="true">Electricity</button>
+        <button class="seg-btn" data-hist="heat" type="button" role="tab" aria-selected="false">Heating</button>
+      </div>
+      <div id="hist-el" class="tab">
       <article class="card">
         <div class="row-between"><div><h2 class="h2">Last 30 days</h2><span class="muted tiny-label">Electricity from your meter, priced hour by hour</span></div></div>
         <div class="hist-stats">
@@ -135,6 +140,39 @@
         <div id="hm-chart" class="hist-chart" role="img" aria-label="Electricity used per month, last 24 months"></div>
         <ul id="hm-summary" class="heat-summary"></ul>
       </article>
+      </div>
+      <div id="hist-heat" class="tab" hidden>
+        <p id="hh-status" class="status" hidden></p>
+        <article class="card">
+          <div><h2 class="h2">Room differences</h2><span class="muted tiny-label">Daily average gap, °C · follow the effect of adjustments</span></div>
+          <div id="hh-gap" class="hist-chart" role="img" aria-label="Daily temperature gap between rooms"></div>
+          <div class="heat-legend muted"><span><i class="sw sw-north"></i>1st N minus 1st S</span><span><i class="sw sw-ground"></i>Upstairs minus downstairs</span></div>
+        </article>
+        <article class="card">
+          <div class="row-between"><div><h2 class="h2">Daily low – high</h2><span class="muted tiny-label">Dot = daily average</span></div></div>
+          <div id="hh-room-chips" class="chips"></div>
+          <div id="hh-range" class="hist-chart" role="img" aria-label="Daily low, average and high temperature"></div>
+        </article>
+        <article class="card">
+          <div><h2 class="h2">Sun gain</h2><span class="muted tiny-label">How far the south room ran ahead of the north room, 10–16</span></div>
+          <div id="hh-sun" class="hist-chart" role="img" aria-label="Daily sun gain"></div>
+        </article>
+        <article class="card">
+          <div><h2 class="h2">Night cooling vs outside</h2><span class="muted tiny-label">House drift 00–05 per night against the outside temperature</span></div>
+          <div id="hh-night" class="hist-chart" role="img" aria-label="Night-time temperature drift against outside temperature"></div>
+          <p id="hh-night-note" class="tiny muted"></p>
+        </article>
+        <article class="card">
+          <div><h2 class="h2">Humidity</h2><span class="muted tiny-label">Hours per day above 60 % (mould risk)</span></div>
+          <div id="hh-hum" class="hist-chart" role="img" aria-label="Hours per day above 60 percent humidity per room"></div>
+          <div class="heat-legend muted"><span><i class="sw sw-ground"></i>Ground</span><span><i class="sw sw-south"></i>1st S</span><span><i class="sw sw-north"></i>1st N</span></div>
+          <p id="hh-hum-note" class="tiny muted"></p>
+        </article>
+        <article class="card">
+          <div><h2 class="h2">Comfort</h2><span class="muted tiny-label">Share of time at 20–23 °C, last 7 days</span></div>
+          <div id="hh-comfort" class="comfort"></div>
+        </article>
+      </div>
     </section>
 
     <nav class="tabbar" aria-label="Main">
@@ -176,8 +214,8 @@
     <button id="sheet-close" class="btn-primary" type="button">Done</button>
   </div>
 </div>
-<script src="config.js?v=20261122g"></script>
-<script src="demo.js?v=20261122g"></script>
-<script src="app.js?v=20261122g"></script>
+<script src="config.js?v=20261123a"></script>
+<script src="demo.js?v=20261123a"></script>
+<script src="app.js?v=20261123a"></script>
 </body>
 </html>

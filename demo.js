@@ -36,6 +36,19 @@ window.HOME_DEMO_DATA = function (state, day) {
   for (var i = 31; i >= 2; i--) { var dt = new Date(now - i * 86400000); var k = dt.toISOString().slice(0, 10); var we = dt.getDay() === 0 || dt.getDay() === 6; var v = 28 + 8 * Math.sin(i / 5) + (we ? 6 : 0); hd[k] = { kwh: v, cost: v * 2.4 }; }
   for (var m = 23; m >= 0; m--) { var dm = new Date(); dm.setDate(15); dm.setMonth(dm.getMonth() - m); var mk = dm.toISOString().slice(0, 7); var season = Math.cos((dm.getMonth() + 0.5) / 12 * 2 * Math.PI); hm[mk] = m === 0 ? 640 : 900 + 450 * season; }
   state.history = { at: Date.now(), days: hd, months: hm };
+  // example room history: 30 days, hourly
+  var rooms = { ground: { t: {}, h: {} }, south: { t: {}, h: {} }, north: { t: {}, h: {} } }, outH = {};
+  for (var hr = 30 * 24; hr >= 1; hr--) {
+    var tt = new Date(now - hr * 3600000), hk = tt.toISOString().slice(0, 13);
+    var hod = tt.getHours(), dayN = Math.floor(hr / 24), sunny = (dayN % 3) !== 0;
+    var o = 3 + 4 * Math.sin((hod - 9) / 24 * 2 * Math.PI) - dayN * 0.08;
+    var base = 22 + 0.6 * Math.sin((hod - 15) / 24 * 2 * Math.PI) + 0.05 * o;
+    var sunAdd = sunny && hod >= 10 && hod <= 15 ? [0.5, 1.1, 1.6, 1.7, 1.3, 0.7][hod - 10] : 0;
+    rooms.ground.t[hk] = base + 0.4; rooms.south.t[hk] = base + sunAdd * (dayN > 20 ? 1 : 0.8); rooms.north.t[hk] = base - 0.7 + dayN * 0.0;
+    rooms.ground.h[hk] = 44 + (hod === 7 || hod === 19 ? 18 : 0); rooms.south.h[hk] = 46 + (hod < 7 ? 16 : 0); rooms.north.h[hk] = 42;
+    outH[hk] = o;
+  }
+  state.heatHist = { at: Date.now(), rooms: rooms, out: outH };
   // example of yesterday's consumption from Eloverblik
   state.yesterday = { day: 'yesterday', back: 1, kwh: 41.2, cost: 128.4, avg: 3.12, priced: true };
 };

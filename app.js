@@ -636,6 +636,10 @@
   }
 
   function renderHistory() {
+    const sub = state.histTab || 'el';
+    document.querySelectorAll('.seg-btn').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.hist === sub)));
+    $('hist-el').hidden = sub !== 'el'; $('hist-heat').hidden = sub !== 'heat';
+    if (sub === 'heat') { renderHeatHistory(); if (!DEMO && (!state.heatHist || Date.now() - state.heatHist.at > 30 * 60000)) loadHeatHistory().then(renderHeatHistory).catch(() => { $('hh-status').hidden = false; $('hh-status').textContent = 'Could not load room history from Homey.'; }); return; }
     const h = state.history;
     if (!h) {
       const msg = DEMO ? 'Loading…' : store.get('eloRefresh') ? 'Loading from Eloverblik…' : 'Add your Eloverblik token in Settings';
@@ -714,11 +718,12 @@
   }
 
   // Homey Insights: entries live at /log/<owner uri>/<log id>/entry (second form kept as a fallback).
-  async function insightSeries(deviceId) {
-    const full = 'homey:device:' + deviceId + ':measure_temperature';
+  async function insightSeries(deviceId, cap, resolution) {
+    const full = 'homey:device:' + deviceId + ':' + (cap || 'measure_temperature');
+    const res = resolution || 'last24Hours';
     const paths = [
-      '/api/manager/insights/log/' + encodeURIComponent('homey:device:' + deviceId) + '/' + encodeURIComponent(full) + '/entry?resolution=last24Hours',
-      '/api/manager/insights/log/' + encodeURIComponent(full) + '/entry?resolution=last24Hours',
+      '/api/manager/insights/log/' + encodeURIComponent('homey:device:' + deviceId) + '/' + encodeURIComponent(full) + '/entry?resolution=' + res,
+      '/api/manager/insights/log/' + encodeURIComponent(full) + '/entry?resolution=' + res,
     ];
     for (const p of paths) {
       try {
@@ -761,6 +766,158 @@
     try { await loadOutside(); } catch (e) { /* show without outside */ }
     if (!DEMO && state.homey) { try { await loadIndoor(); } catch (e) { state.heat.source = 'local'; } }
     renderHeat();
+  }
+
+  // ---------- History: heating ----------
+  const ROOM_COLOR = { ground: 'var(--ground)', south: 'var(--first)', north: 'var(--north)' };
+  const hourKey = (t) => keyDK(t).slice(0, 13);
+  // average a series into one value per local hour: { 'YYYY-MM-DDTHH': value }
+  function hourly1(series) {
+    const sum = {}, cnt = {};
+    (series || []).forEach((p) => { const k = hourKey(p.t); sum[k] = (sum[k] || 0) + p.v; cnt[k] = (cnt[k] || 0) + 1; });
+    const out = {}; Object.keys(sum).forEach((k) => { out[k] = sum[k] / cnt[k]; });
+    return out;
+  }
+  async function loadHeatHistory(force) {
+    if (DEMO) return;
+    const hh = state.heatHist;
+    if (!force && hh && Date.now() - hh.at < 30 * 60000) return;
+    if (!state.homey) return;
+    const rooms = {};
+    for (const { key } of HEAT) {
+      const devs = floorDevices(key);
+      if (!devs.length) continue;
+      const t = await insightSeries(devs[0].id, 'measure_temperature', 'last31Days');
+      const h = devs[0].capabilitiesObj.measure_humidity ? await insightSeries(devs[0].id, 'measure_humidity', 'last31Days') : null;
+      rooms[key] = { t: hourly1(t), h: hourly1(h) };
+    }
+    let out = {};
+    try {
+      const L = C.location || { lat: 56.14, lon: 8.97 };
+      const r = await withTimeout((signal) => fetch('https://api.open-meteo.com/v1/forecast?latitude=' + L.lat + '&longitude=' + L.lon + '&hourly=temperature_2m&past_days=31&forecast_days=1&timezone=UTC', { signal }), 20000);
+      const j = await r.json();
+      out = hourly1(j.hourly.time.map((t, i) => ({ t: new Date(t + 'Z').getTime(), v: j.hourly.temperature_2m[i] })).filter((p) => p.t <= Date.now() && num(p.v) != null));
+    } catch (e) { /* without outside */ }
+    state.heatHist = { at: Date.now(), rooms, out };
+  }
+  function heatDays(hh) {
+    const keys = new Set();
+    Object.values(hh.rooms).forEach((r) => Object.keys(r.t).forEach((k) => keys.add(k.slice(0, 10))));
+    return [...keys].sort().filter((d) => d >= dayKey(-30));
+  }
+  const avgOf = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+  function hoursOf(day) { return Array.from({ length: 24 }, (_, h) => day + 'T' + String(h).padStart(2, '0')); }
+
+  function lineChart(el, days, series, opts) {
+    const W = Math.max(240, el.clientWidth), H = 150, l = 34, r = 6, top = 10, bottom = 22;
+    const vals = series.flatMap((s) => s.v.filter((v) => v != null)).concat(opts.zero ? [0] : []);
+    if (!days.length || vals.length < 2) { el.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '"><text x="' + W / 2 + '" y="' + H / 2 + '" text-anchor="middle">' + (opts.empty || 'Collecting – a few more days needed') + '</text></svg>'; return; }
+    let lo = Math.min(...vals), hi = Math.max(...vals); const pad = Math.max(0.2, (hi - lo) * 0.12); lo -= pad; hi += pad;
+    const x = (i) => l + (days.length === 1 ? (W - l - r) / 2 : (i / (days.length - 1)) * (W - l - r));
+    const y = (v) => top + (1 - (v - lo) / (hi - lo)) * (H - top - bottom);
+    const step = hi - lo <= 2 ? 0.5 : hi - lo <= 5 ? 1 : hi - lo <= 12 ? 2 : 5;
+    let g = ''; for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) g += '<line x1="' + l + '" x2="' + (W - r) + '" y1="' + y(v).toFixed(1) + '" y2="' + y(v).toFixed(1) + '" stroke="var(--line)"' + (Math.abs(v) < 1e-9 && opts.zero ? '' : ' stroke-dasharray="2 3"') + '></line><text x="' + (l - 6) + '" y="' + (y(v) + 4).toFixed(1) + '" text-anchor="end">' + (+v.toFixed(1)).toString().replace('-', '−') + (opts.unit || '') + '</text>';
+    const lines = series.map((s) => { const pts = s.v.map((v, i) => (v == null ? null : x(i).toFixed(1) + ',' + y(v).toFixed(1))).filter(Boolean); return pts.length > 1 ? '<polyline fill="none" stroke="' + s.color + '" stroke-width="2.2" stroke-linejoin="round" points="' + pts.join(' ') + '"></polyline>' : pts.length ? '<circle cx="' + pts[0].split(',')[0] + '" cy="' + pts[0].split(',')[1] + '" r="3" fill="' + s.color + '"></circle>' : ''; }).join('');
+    const dm = (k) => +k.slice(8, 10) + '/' + +k.slice(5, 7);
+    const labs = days.map((d, i) => ((days.length - 1 - i) % 7 === 0 ? '<text x="' + x(i).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="' + (i === days.length - 1 ? 'end' : i === 0 ? 'start' : 'middle') + '">' + dm(d) + '</text>' : '')).join('');
+    el.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" aria-hidden="true">' + g + lines + labs + '</svg>';
+  }
+  function rangeChart(el, days, rows, color) {
+    const W = Math.max(240, el.clientWidth), H = 150, l = 34, r = 6, top = 10, bottom = 22;
+    const vals = rows.flatMap((d) => (d ? [d.lo, d.hi] : []));
+    if (vals.length < 2) { el.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '"><text x="' + W / 2 + '" y="' + H / 2 + '" text-anchor="middle">Collecting – a few more days needed</text></svg>'; return; }
+    let lo = Math.min(...vals) - 0.3, hi = Math.max(...vals) + 0.3;
+    const bw = (W - l - r) / days.length;
+    const y = (v) => top + (1 - (v - lo) / (hi - lo)) * (H - top - bottom);
+    const step = hi - lo <= 3 ? 0.5 : hi - lo <= 6 ? 1 : 2;
+    let g = ''; for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) g += '<line x1="' + l + '" x2="' + (W - r) + '" y1="' + y(v).toFixed(1) + '" y2="' + y(v).toFixed(1) + '" stroke="var(--line)" stroke-dasharray="2 3"></line><text x="' + (l - 6) + '" y="' + (y(v) + 4).toFixed(1) + '" text-anchor="end">' + (+v.toFixed(1)) + '°</text>';
+    const dm = (k) => +k.slice(8, 10) + '/' + +k.slice(5, 7);
+    const bars = rows.map((d, i) => { if (!d) return ''; const cx = l + i * bw + bw / 2, w = Math.max(3, Math.min(10, bw * 0.55)); return '<rect x="' + (cx - w / 2).toFixed(1) + '" y="' + y(d.hi).toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + Math.max(2, y(d.lo) - y(d.hi)).toFixed(1) + '" rx="' + (w / 2).toFixed(1) + '" fill="' + color + '" opacity="0.35"><title>' + dm(days[i]) + ': ' + f1(d.lo) + '–' + f1(d.hi) + '°, avg ' + f1(d.avg) + '°</title></rect><circle cx="' + cx.toFixed(1) + '" cy="' + y(d.avg).toFixed(1) + '" r="3" fill="' + color + '"></circle>'; }).join('');
+    const labs = days.map((d, i) => ((days.length - 1 - i) % 7 === 0 ? '<text x="' + (l + i * bw + bw / 2).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="' + (i === days.length - 1 ? 'end' : 'middle') + '">' + dm(d) + '</text>' : '')).join('');
+    el.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" aria-hidden="true">' + g + bars + labs + '</svg>';
+  }
+  function scatterChart(el, pts) {
+    const W = Math.max(240, el.clientWidth), H = 150, l = 40, r = 8, top = 10, bottom = 24;
+    if (pts.length < 2) { el.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '"><text x="' + W / 2 + '" y="' + H / 2 + '" text-anchor="middle">Needs a few more nights</text></svg>'; return; }
+    let x0 = Math.min(...pts.map((p) => p.x)) - 1, x1 = Math.max(...pts.map((p) => p.x)) + 1;
+    let y0 = Math.min(0, ...pts.map((p) => p.y)) - 0.05, y1 = Math.max(0, ...pts.map((p) => p.y)) + 0.05;
+    const X = (v) => l + ((v - x0) / (x1 - x0)) * (W - l - r), Y = (v) => top + (1 - (v - y0) / (y1 - y0)) * (H - top - bottom);
+    let g = '<line x1="' + l + '" x2="' + (W - r) + '" y1="' + Y(0).toFixed(1) + '" y2="' + Y(0).toFixed(1) + '" stroke="var(--line)"></line>';
+    [y0 + 0.05, y1 - 0.05].forEach((v) => { g += '<text x="' + (l - 6) + '" y="' + (Y(v) + 4).toFixed(1) + '" text-anchor="end">' + v.toFixed(2).replace('-', '−') + '</text>'; });
+    for (let v = Math.ceil(x0); v <= x1; v += Math.max(1, Math.round((x1 - x0) / 5))) g += '<text x="' + X(v).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle">' + String(v).replace('-', '−') + '°</text>';
+    // least-squares line
+    const n = pts.length, mx = avgOf(pts.map((p) => p.x)), my = avgOf(pts.map((p) => p.y));
+    const sxx = pts.reduce((a, p) => a + (p.x - mx) ** 2, 0), sxy = pts.reduce((a, p) => a + (p.x - mx) * (p.y - my), 0);
+    let fit = '';
+    if (n >= 4 && sxx > 0.5) { const b = sxy / sxx, a0 = my - b * mx; fit = '<line x1="' + X(x0).toFixed(1) + '" y1="' + Y(a0 + b * x0).toFixed(1) + '" x2="' + X(x1).toFixed(1) + '" y2="' + Y(a0 + b * x1).toFixed(1) + '" stroke="var(--ink)" stroke-dasharray="5 4" opacity="0.5"></line>'; }
+    const dots = pts.map((p) => '<circle cx="' + X(p.x).toFixed(1) + '" cy="' + Y(p.y).toFixed(1) + '" r="4" fill="var(--ground)" opacity="0.8"><title>' + p.label + ': outside ' + f1(p.x) + '°, ' + (p.y >= 0 ? '+' : '−') + Math.abs(p.y).toFixed(2) + ' °C/h</title></circle>').join('');
+    el.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" aria-hidden="true">' + g + fit + dots + '<text x="' + (W - r) + '" y="' + (top + 10) + '" text-anchor="end">°C per hour</text></svg>';
+  }
+  function groupedBars(el, days, groups) {
+    const W = Math.max(240, el.clientWidth), H = 150, l = 30, r = 4, top = 8, bottom = 22;
+    const vals = groups.flatMap((g) => g.v.filter((v) => v != null));
+    if (!days.length || !vals.length) { el.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '"><text x="' + W / 2 + '" y="' + H / 2 + '" text-anchor="middle">Collecting</text></svg>'; return; }
+    const max = Math.max(4, ...vals);
+    const y = (v) => top + (1 - v / max) * (H - top - bottom);
+    const bw = (W - l - r) / days.length, sw = (bw * 0.8) / groups.length;
+    let g = ''; const step = max <= 8 ? 2 : max <= 16 ? 4 : 6;
+    for (let v = 0; v <= max; v += step) g += '<line x1="' + l + '" x2="' + (W - r) + '" y1="' + y(v).toFixed(1) + '" y2="' + y(v).toFixed(1) + '" stroke="var(--line)"' + (v ? ' stroke-dasharray="2 3"' : '') + '></line><text x="' + (l - 6) + '" y="' + (y(v) + 4).toFixed(1) + '" text-anchor="end">' + v + 'h</text>';
+    const dm = (k) => +k.slice(8, 10) + '/' + +k.slice(5, 7);
+    const bars = days.map((d, i) => groups.map((gr, j) => { const v = gr.v[i]; return v ? '<rect x="' + (l + i * bw + bw * 0.1 + j * sw).toFixed(1) + '" y="' + y(v).toFixed(1) + '" width="' + Math.max(1, sw - 0.5).toFixed(1) + '" height="' + (y(0) - y(v)).toFixed(1) + '" fill="' + gr.color + '"><title>' + dm(d) + ' ' + gr.name + ': ' + v + ' h</title></rect>' : ''; }).join('')).join('');
+    const labs = days.map((d, i) => ((days.length - 1 - i) % 7 === 0 ? '<text x="' + (l + i * bw + bw / 2).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="' + (i === days.length - 1 ? 'end' : 'middle') + '">' + dm(d) + '</text>' : '')).join('');
+    el.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" aria-hidden="true">' + g + bars + labs + '</svg>';
+  }
+
+  function renderHeatHistory() {
+    const hh = state.heatHist;
+    if (!hh || !Object.keys(hh.rooms).length) {
+      $('hh-status').hidden = false; $('hh-status').textContent = DEMO ? 'Loading…' : state.homey ? 'Loading room history from Homey…' : 'Sign in to Homey to see room history.';
+      return;
+    }
+    const days = heatDays(hh);
+    $('hh-status').hidden = days.length >= 7;
+    $('hh-status').textContent = days.length + ' day' + (days.length === 1 ? '' : 's') + ' of room history so far. The charts fill in as the days go by.';
+    const R = hh.rooms, has = (k) => R[k] && Object.keys(R[k].t).length;
+    const dayVals = (k, d) => hoursOf(d).map((h) => R[k] && R[k].t[h]).filter((v) => num(v) != null);
+
+    // 1. room differences
+    const gapNS = days.map((d) => { const v = hoursOf(d).map((h) => (R.north && R.south && R.north.t[h] != null && R.south.t[h] != null ? R.north.t[h] - R.south.t[h] : null)).filter((x) => x != null); return v.length >= 6 ? avgOf(v) : null; });
+    const gapUD = days.map((d) => { const v = hoursOf(d).map((h) => { const up = ['south', 'north'].map((k) => R[k] && R[k].t[h]).filter((x) => num(x) != null); return up.length && R.ground && R.ground.t[h] != null ? avgOf(up) - R.ground.t[h] : null; }).filter((x) => x != null); return v.length >= 6 ? avgOf(v) : null; });
+    lineChart($('hh-gap'), days, [{ v: gapNS, color: 'var(--north)' }, { v: gapUD, color: 'var(--ground)' }], { zero: true, unit: '°' });
+
+    // 2. daily low-high per room
+    const keys = HEAT.map((x) => x.key).filter(has);
+    if (!state.hhRoom || !keys.includes(state.hhRoom)) state.hhRoom = keys[0];
+    $('hh-room-chips').innerHTML = keys.map((k) => '<button class="chip" type="button" data-room="' + k + '" aria-pressed="' + (k === state.hhRoom) + '">' + esc((HEAT.find((x) => x.key === k) || {}).short || k) + '</button>').join('');
+    rangeChart($('hh-range'), days, days.map((d) => { const v = dayVals(state.hhRoom, d); return v.length >= 4 ? { lo: Math.min(...v), hi: Math.max(...v), avg: avgOf(v) } : null; }), ROOM_COLOR[state.hhRoom] || 'var(--ground)');
+
+    // 3. sun gain
+    const sun = days.map((d) => { const v = hoursOf(d).slice(10, 16).map((h) => (R.south && R.north && R.south.t[h] != null && R.north.t[h] != null ? R.south.t[h] - R.north.t[h] : null)).filter((x) => x != null); return v.length >= 3 ? Math.max(0, Math.max(...v)) : null; });
+    barChart($('hh-sun'), days.map((d, i) => ({ v: sun[i] || 0, color: 'var(--first)', label: (days.length - 1 - i) % 7 === 0 ? +d.slice(8, 10) + '/' + +d.slice(5, 7) : '', title: d + ': ' + (sun[i] == null ? 'no data' : '+' + f1(sun[i]) + '°') })), { endLabel: true, empty: 'Collecting' });
+
+    // 4. night cooling vs outside: house average 00 → 05, per night
+    const nights = [];
+    days.forEach((d) => {
+      const hs = hoursOf(d).slice(0, 6);
+      const house = hs.map((h) => { const v = keys.map((k) => R[k].t[h]).filter((x) => num(x) != null); return v.length === keys.length ? avgOf(v) : null; });
+      const outs = hs.map((h) => hh.out[h]).filter((x) => num(x) != null);
+      if (house[0] != null && house[5] != null && outs.length >= 4) nights.push({ x: avgOf(outs), y: (house[5] - house[0]) / 5, label: +d.slice(8, 10) + '/' + +d.slice(5, 7) });
+    });
+    scatterChart($('hh-night'), nights);
+    $('hh-night-note').textContent = nights.length >= 4 ? 'Each dot is a night. Below zero = the house cooled. A steeper dashed line means the house loses heat faster on cold nights. The floor heating is running too, so this is net drift, not pure heat loss.' : 'Each dot will be one night (' + nights.length + ' so far).';
+
+    // 5. humidity hours above 60 %
+    const humKeys = keys.filter((k) => Object.keys(R[k].h || {}).length);
+    groupedBars($('hh-hum'), days, humKeys.map((k) => ({ name: (HEAT.find((x) => x.key === k) || {}).short || k, color: ROOM_COLOR[k], v: days.map((d) => { const v = hoursOf(d).map((h) => R[k].h[h]).filter((x) => num(x) != null); return v.length ? v.filter((x) => x > 60).length : null; }) })));
+    const dry = humKeys.map((k) => { const v = Object.entries(R[k].h).filter(([h]) => h.slice(0, 10) >= dayKey(-7)).map(([, x]) => x); return v.length ? [(HEAT.find((x) => x.key === k) || {}).short || k, v.filter((x) => x < 30).length, avgOf(v)] : null; }).filter(Boolean);
+    $('hh-hum-note').textContent = dry.length ? 'Last 7 days: ' + dry.map(([n, c, a]) => n + ' avg ' + Math.round(a) + ' %' + (c ? ' (' + c + ' h below 30 %)' : '')).join(' · ') : '';
+
+    // 6. comfort share 20-23 °C, last 7 days
+    $('hh-comfort').innerHTML = keys.map((k) => {
+      const v = Object.entries(R[k].t).filter(([h]) => h.slice(0, 10) >= dayKey(-7)).map(([, x]) => x);
+      const pct = v.length ? Math.round((v.filter((x) => x >= 20 && x <= 23).length / v.length) * 100) : null;
+      return '<div class="comfort-row"><span>' + esc((HEAT.find((x) => x.key === k) || {}).short || k) + '</span><span class="track"><span class="fill" style="width:' + (pct || 0) + '%;background:' + ROOM_COLOR[k] + '"></span></span><span class="pct">' + (pct == null ? '—' : pct + ' %') + '</span></div>';
+    }).join('') || '<p class="muted small">No room sensors found.</p>';
   }
 
   function seriesFor(k) {
@@ -931,6 +1088,8 @@
     $('zone-groups').addEventListener('click', (e) => { const t = e.target.closest('.tile[data-id]'); if (t) onTile(t.dataset.id); });
     $('zone-groups').addEventListener('keydown', (e) => { const t = e.target.closest('.tile[data-id]'); if (t && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onTile(t.dataset.id); } });
     $('dev-close').addEventListener('click', closeDevice);
+    document.querySelectorAll('.seg-btn').forEach((b) => b.addEventListener('click', () => { state.histTab = b.dataset.hist; renderHistory(); }));
+    $('hh-room-chips').addEventListener('click', (e) => { const c = e.target.closest('[data-room]'); if (c) { state.hhRoom = c.dataset.room; renderHeatHistory(); } });
     $('dev-body').addEventListener('click', (e) => { const b = e.target.closest('button[data-act]'); if (b) devAction(b); });
     $('dev-body').addEventListener('change', (e) => { if (e.target.matches('input[data-act]')) devAction(e.target); });
     $('theme-select').addEventListener('change', (e) => { if (DEMO) mem.theme = e.target.value; else store.set('theme', e.target.value); applyTheme(); });
