@@ -519,7 +519,7 @@
   }
   async function loadYesterday() {
     const meter = await eloMeter();
-    for (const back of [1, 2]) {
+    for (const back of [1, 2, 3, 4, 5, 6, 7]) {
       const day = dayKey(-back), next = dayKey(-back + 1);
       const j = await elo('/meterdata/gettimeseries/' + day + '/' + next + '/Hour', { meteringPoints: { meteringPoint: [meter.id] } });
       const doc = j.result && j.result[0] && j.result[0].MyEnergyData_MarketDocument;
@@ -538,11 +538,13 @@
         for (let m = 0; m < p.mins; m += 15) { const pr = prices.get(keyDK(p.t + m * 60000)); if (pr != null) qs.push(pr); }
         if (qs.length) cost += p.kwh * (qs.reduce((a, b) => a + b, 0) / qs.length);
       }
-      state.yesterday = { day, back, kwh, cost, avg: kwh ? cost / kwh : null, priced: prices.size > 0 };
+      state.yesterday = { day, back, kwh, cost, avg: kwh ? cost / kwh : null, priced: prices.size > 0, at: Date.now() };
       store.set('yesterday', state.yesterday);
       return;
     }
-    state.yesterday = { none: true, at: Date.now() };
+    // nothing new published: keep the last good day rather than showing a dash
+    const prev = state.yesterday;
+    state.yesterday = prev && prev.kwh != null ? Object.assign({}, prev, { at: Date.now() }) : { none: true, at: Date.now() };
   }
   async function loadEloverblik(force) {
     if (DEMO || !store.get('eloRefresh')) { render(); return; }
@@ -551,7 +553,7 @@
       const t = state.tariffs;
       if (force || !t || Date.now() - t.at > 24 * 3600000) await loadTariffs();
       const y = state.yesterday;
-      if (force || !y || y.none || y.back !== 1 || y.day !== dayKey(-1)) await loadYesterday();
+      if (force || !y || (y.day !== dayKey(-1) && !(y.at && Date.now() - y.at < 2 * 3600000))) await loadYesterday();
       await loadHistory(force);
     } catch (e) { state.eloError = 'Eloverblik: ' + e.message; }
     render();
@@ -564,7 +566,7 @@
     if (state.eloError && !(y && y.kwh != null)) { $('yday-cost').textContent = '—'; $('yday-note').textContent = state.eloError; return; }
     if (!y) { $('yday-cost').textContent = '—'; $('yday-note').textContent = 'Loading from Eloverblik…'; return; }
     if (y.none) { $('yday-cost').textContent = '—'; $('yday-note').textContent = 'Not published by Eloverblik yet'; return; }
-    if (y.back !== 1) $('yday-label').textContent = new Intl.DateTimeFormat('en-GB', { weekday: 'long', timeZone: TZ }).format(new Date(y.day + 'T12:00:00'));
+    if (/^\d{4}-/.test(y.day || '') && y.day !== dayKey(-1)) $('yday-label').textContent = new Intl.DateTimeFormat('en-GB', { weekday: 'long', timeZone: TZ }).format(new Date(y.day + 'T12:00:00'));
     $('yday-cost').textContent = y.priced ? Math.round(y.cost) : '—';
     $('yday-note').textContent = f1(y.kwh) + ' kWh' + (y.priced ? ' · ' + f2(y.avg) + ' kr/kWh' : '');
   }
