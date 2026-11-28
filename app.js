@@ -527,7 +527,8 @@
       ((doc && doc.TimeSeries) || []).forEach((ts) => (ts.Period || []).forEach((per) => {
         const start = new Date(per.timeInterval.start).getTime();
         const mins = per.resolution === 'PT15M' ? 15 : 60;
-        (per.Point || []).forEach((pt) => { const q = +pt['out_Quantity.quantity']; if (num(q) != null) pts.push({ t: start + (+pt.position - 1) * mins * 60000, mins, kwh: q }); });
+        // quality A02 = missing (not measured yet): Eloverblik sends 0.0 for those
+        (per.Point || []).forEach((pt) => { const q = +pt['out_Quantity.quantity']; if (num(q) != null && pt['out_Quantity.quality'] !== 'A02') pts.push({ t: start + (+pt.position - 1) * mins * 60000, mins, kwh: q }); });
       }));
       // Eloverblik sometimes publishes only part of a day: use a day only when all hours are in
       const hrs = new Set(pts.map((p) => keyDK(p.t).slice(0, 13))).size;
@@ -580,7 +581,7 @@
     ((doc && doc.TimeSeries) || []).forEach((ts) => (ts.Period || []).forEach((per) => {
       const start = new Date(per.timeInterval.start).getTime();
       const step = per.resolution === 'PT15M' ? 15 * 60000 : per.resolution === 'PT1H' ? 3600000 : 0;
-      (per.Point || []).forEach((pt) => { const q = +pt['out_Quantity.quantity']; if (num(q) != null) pts.push({ t: start + (+pt.position - 1) * step, step, kwh: q }); });
+      (per.Point || []).forEach((pt) => { const q = +pt['out_Quantity.quantity']; if (num(q) != null && pt['out_Quantity.quality'] !== 'A02') pts.push({ t: start + (+pt.position - 1) * step, step, kwh: q }); });
     }));
     return pts;
   }
@@ -595,6 +596,7 @@
     const byDay = {};
     hours.forEach((p) => { const k = keyDK(p.t).slice(0, 10); (byDay[k] = byDay[k] || []).push(p); });
     for (const [day, pts] of Object.entries(byDay)) {
+      if (new Set(pts.map((p) => keyDK(p.t).slice(0, 13))).size < 23) { delete h.days[day]; continue; } // day not complete yet
       const kwh = pts.reduce((a, p) => a + p.kwh, 0);
       const old = h.days[day];
       if (old && old.cost != null && Math.abs(old.kwh - kwh) < 0.01) continue;
