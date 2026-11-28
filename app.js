@@ -529,7 +529,9 @@
         const mins = per.resolution === 'PT15M' ? 15 : 60;
         (per.Point || []).forEach((pt) => { const q = +pt['out_Quantity.quantity']; if (num(q) != null) pts.push({ t: start + (+pt.position - 1) * mins * 60000, mins, kwh: q }); });
       }));
-      if (pts.length < 20) continue; // not published yet: try the day before
+      // Eloverblik sometimes publishes only part of a day: use a day only when all hours are in
+      const hrs = new Set(pts.map((p) => keyDK(p.t).slice(0, 13))).size;
+      if (hrs < 23) continue; // not (fully) published yet: try the day before
       const prices = new Map((await fromElprisenLigeNu(day)).map((p) => [p.t, withAllIn(p).total]));
       let kwh = 0, cost = 0;
       for (const p of pts) {
@@ -1083,7 +1085,7 @@
     document.querySelectorAll('.tabbtn').forEach((b) => { if (b.dataset.tab === tab) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
     $('page-title').textContent = { home: 'Home', energy: 'Energy', devices: 'Devices', history: 'History' }[tab];
     render();
-    window.scrollTo(0, 0);
+    $('main').scrollTop = 0;
   }
   function eloStatus() {
     const has = !!store.get('eloRefresh');

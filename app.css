@@ -46,6 +46,10 @@ button, select { font: inherit; color: inherit; }
 .btn-secondary { background: transparent; border: 1px solid var(--chip-line); color: var(--ink); }
 
 .main { padding: calc(env(safe-area-inset-top) + 16px) 16px calc(env(safe-area-inset-bottom) + 92px); display: flex; flex-direction: column; gap: 14px; }
+/* The page scrolls inside .main, not the document: iOS home-screen apps can otherwise drop the fixed tab bar into the middle of the page */
+html, body { height: 100%; overflow: hidden; }
+.main { position: fixed; top: 0; bottom: 0; left: 0; right: 0; max-width: 520px; margin: 0 auto; overflow-y: auto; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; }
+.login { height: 100dvh; overflow-y: auto; }
 .topbar { display: flex; justify-content: space-between; align-items: center; padding: 4px 4px 0; }
 .topbar-text { display: flex; flex-direction: column; gap: 2px; }
 .icon-btn { width: 44px; height: 44px; border-radius: 22px; border: 1px solid var(--chip-line); background: var(--card); display: flex; align-items: center; justify-content: center; cursor: pointer; }
